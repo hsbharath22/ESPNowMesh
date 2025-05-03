@@ -1,0 +1,323 @@
+# Acknowledgment System Improvements for ESPNowMesh
+
+Looking at your ESPNowMesh library implementation, I can suggest several practical improvements to make the acknowledgment system more robust and feature-rich. Here are the most valuable enhancements compatible with ESP Arduino Core 3.2.0:
+
+## 1. Exponential Backoff for Retries
+
+Instead of resending at fixed intervals, implement an exponential backoff strategy to reduce network congestion during failures:
+
+```cpp
+void ESPNowMesh::resendPendingMessage(int index) {
+  if (!isPendingAckActive(index)) {
+    return;
+  }
+  
+  uint8_t attempt = pendingAcks[index].attempts;
+  pendingAcks[index].attempts++;
+  
+  // Calculate exponential backoff time based on attempt number
+  // Base timeout * (2^attempt) with a maximum cap
+  uint32_t backoff = min((uint32_t)(ackTimeout * (1 << (attempt - 1))), 
+                         (uint32_t)(ackTimeout * 8));
+  
+  if (debugMode) {
+    debugLog("Resending message ID 0x%08X (attempt %u/%u) after %u ms backoff", 
+             pendingAcks[index].msg_id, attempt, ackRetries, backoff);
+  }
+  
+  pendingAcks[index].timestamp = millis();
+  
+  // Resend the message with original ID for proper tracking
+  send(pendingAcks[index].payload, 
+       pendingAcks[index].dest_mac, 
+       pendingAcks[index].ttl, 
+       pendingAcks[index].msg_id);
+}
+```
+
+## 2. Message Queue for Reliable Messages
+
+Instead of rejecting messages when all slots are full, implement a simple queue:
+
+```cpp
+#define MESH_MAX_QUEUED_MSGS 10
+
+struct QueuedMessage {
+  bool active;
+  char payload[MESH_PAYLOAD_LEN];
+  uint8_t dest_mac[6];
+  uint8_t ttl;
+};
+
+// Add to class definition
+QueuedMessage msgQueue[MESH_MAX_QUEUED_MSGS];
+uint8_t queueHead = 0;
+uint8_t queueTail = 0;
+bool queueFull = false;
+
+// Queue a message when all slots are full
+bool ESPNowMesh::queueReliableMessage(const char* msg, const uint8_t* target_mac, uint8_t ttl) {
+  if (queueFull) {
+    if (debugMode) {
+      debugLog("Message queue is full, dropping message");
+    }
+    return false;
+  }
+  
+  msgQueue[queueTail].active = true;
+  strlcpy(msgQueue[queueTail].payload, msg, MESH_PAYLOAD_LEN);
+  memcpy(msgQueue[queueTail].dest_mac, target_mac, 6);
+  msgQueue[queueTail].ttl = ttl;
+  
+  queueTail = (queueTail + 1) % MESH_MAX_QUEUED_MSGS;
+  if (queueTail == queueHead) {
+    queueFull = true;
+  }
+  
+  if (debugMode) {
+    debugLog("Message queued for later sending (queue size: %d)", 
+             queueFull ? MESH_MAX_QUEUED_MSGS : 
+             (queueTail >= queueHead ? queueTail - queueHead : 
+              MESH_MAX_QUEUED_MSGS - queueHead + queueTail));
+  }
+  
+  return true;
+}
+```
+
+## 3. Delivery Statistics Tracking
+
+Add detailed statistics to monitor acknowledgment performance:
+
+```cpp
+// Add to class definition
+struct AckStats {
+  unsigned long totalSent;
+  unsigned long successCount;
+  unsigned long failCount;
+  unsigned long avgRoundtripMs;
+  unsigned long maxRoundtripMs;
+  uint8_t avgRetries;
+};
+
+AckStats ackStats = {0};
+
+// Modify _handleAck to track timing
+void ESPNowMesh::_handleAck(uint32_t ack_id, const uint8_t* sender) {
+  // ...existing code...
+  
+  if ((pendingAcks[i].msg_id == ack_id) && memcmp(pendingAcks[i].dest_mac, sender, 6) == 0) {
+    // Calculate roundtrip time and update stats
+    unsigned long roundtripTime = millis() - pendingAcks[i].timestamp;
+    
+    // Update statistics
+    ackStats.successCount++;
+    ackStats.avgRetries = (ackStats.avgRetries * (ackStats.successCount - 1) + 
+                           pendingAcks[i].attempts) / ackStats.successCount;
+    
+    if (ackStats.successCount == 1) {
+      ackStats.avgRoundtripMs = roundtripTime;
+      ackStats.maxRoundtripMs = roundtripTime;
+    } else {
+      ackStats.avgRoundtripMs = (ackStats.avgRoundtripMs * (ackStats.successCount - 1) + 
+                                roundtripTime) / ackStats.successCount;
+      if (roundtripTime > ackStats.maxRoundtripMs) {
+        ackStats.maxRoundtripMs = roundtripTime;
+      }
+    }
+    
+    if (debugMode) {
+      debugLog("Roundtrip time: %u ms, attempts: %u", roundtripTime, pendingAcks[i].attempts);
+    }
+    
+    // ...rest of existing code...
+  }
+}
+
+// Add method to get delivery stats
+ESPNowMesh::AckStats ESPNowMesh::getAckStats() {
+  return ackStats;
+}
+```
+
+## 4. Adaptive Timeouts Based on Network Conditions
+
+Dynamically adjust timeouts based on recent delivery performance:
+
+```cpp
+// Add to class definition
+bool adaptiveTimeouts = false;
+uint32_t baseAckTimeout = MESH_DEFAULT_ACK_TIMEOUT;
+
+// Method to enable/disable adaptive timeouts
+void ESPNowMesh::setAdaptiveTimeouts(bool enable) {
+  adaptiveTimeouts = enable;
+  if (debugMode) {
+    debugLog("Adaptive timeouts %s", enable ? "enabled" : "disabled");
+  }
+}
+
+// Modify loop() to periodically adjust timeouts
+void ESPNowMesh::loop() {
+  // ...existing code...
+  
+  // Adjust timeouts every 2 minutes based on network performance
+  static unsigned long lastTimeoutAdjust = 0;
+  if (adaptiveTimeouts && millis() - lastTimeoutAdjust > 120000 && ackStats.successCount > 10) {
+    lastTimeoutAdjust = millis();
+    
+    // Calculate a good timeout value based on average roundtrip plus 50% margin
+    uint32_t idealTimeout = ackStats.avgRoundtripMs * 1.5;
+    
+    // Constrain to reasonable values (minimum 500ms, maximum 10s)
+    idealTimeout = constrain(idealTimeout, 500, 10000);
+    
+    // Gradually adjust (don't change too drastically)
+    ackTimeout = (ackTimeout * 3 + idealTimeout) / 4;
+    
+    if (debugMode) {
+      debugLog("Adaptive timeout adjusted to %u ms (avg roundtrip: %u ms)", 
+               ackTimeout, ackStats.avgRoundtripMs);
+    }
+  }
+}
+```
+
+## 5. Neighbor-specific Acknowledgment Timeouts
+
+Store and use node-specific timeout values for more efficient communication:
+
+```cpp
+// Extend Neighbor struct
+struct Neighbor {
+  uint8_t mac[6];
+  String role;
+  int rssi;
+  unsigned long lastSeen;
+  uint32_t avgRoundtripMs;  // Average roundtrip time to this neighbor
+  uint8_t reliableMsgCount; // Number of reliable messages sent
+};
+
+// Modify sendReliably to use neighbor-specific timeout if available
+void ESPNowMesh::sendReliably(const char* msg, const uint8_t* target_mac, uint8_t ttl) {
+  // ...existing code...
+  
+  // Look for existing neighbor stats
+  uint32_t nodeTimeout = ackTimeout; // Default timeout
+  for (uint8_t i = 0; i < neighborCount; i++) {
+    if (memcmp(neighbors[i].mac, target_mac, 6) == 0 && 
+        neighbors[i].reliableMsgCount > 3) {
+      // Use neighbor-specific timeout if we have history
+      // Base timeout plus 2x the average roundtrip
+      nodeTimeout = baseAckTimeout + (neighbors[i].avgRoundtripMs * 2);
+      break;
+    }
+  }
+  
+  // Use nodeTimeout instead of global ackTimeout for this slot
+  pendingAcks[slot].timeout = nodeTimeout;
+  
+  // ...rest of existing code...
+}
+```
+
+## 6. Batch Acknowledgments for Network Efficiency
+
+Implement a batch acknowledgment system to reduce network traffic:
+
+```cpp
+#define MESH_MAX_BATCH_ACKS 5
+
+// Add to class definition
+struct BatchAck {
+  uint32_t msgIds[MESH_MAX_BATCH_ACKS];
+  uint8_t count;
+  uint8_t dest_mac[6];
+  unsigned long lastUpdated;
+};
+
+BatchAck pendingBatchAck = {{0}, 0, {0}, 0};
+
+// Modify _onRecv to collect ACKs for batching
+void ESPNowMesh::_onRecv(const uint8_t* mac, const uint8_t* data, int len, int rssi) {
+  // ...existing code...
+  
+  // If this is a reliable message that needs acknowledgment
+  if (isForUs && isUnicast) {
+    uint32_t msgId = msg.msg_id;
+    
+    // Add to batch acknowledgment if from same source
+    if (pendingBatchAck.count == 0 || 
+        memcmp(pendingBatchAck.dest_mac, msg.sender, 6) == 0) {
+      
+      // Add this message ID to our batch
+      pendingBatchAck.msgIds[pendingBatchAck.count++] = msgId;
+      memcpy(pendingBatchAck.dest_mac, msg.sender, 6);
+      pendingBatchAck.lastUpdated = millis();
+      
+      if (pendingBatchAck.count >= MESH_MAX_BATCH_ACKS) {
+        // Send batch acknowledgment immediately when full
+        sendBatchAck();
+      }
+    } else {
+      // Different sender, send pending batch first
+      if (pendingBatchAck.count > 0) {
+        sendBatchAck();
+      }
+      
+      // Start new batch with this message
+      pendingBatchAck.msgIds[0] = msgId;
+      pendingBatchAck.count = 1;
+      memcpy(pendingBatchAck.dest_mac, msg.sender, 6);
+      pendingBatchAck.lastUpdated = millis();
+    }
+    
+    // Don't immediately send ACK - let the batch system handle it
+  }
+}
+
+// Add method to send batch acknowledgments
+void ESPNowMesh::sendBatchAck() {
+  if (pendingBatchAck.count == 0) return;
+  
+  // Format: "BATCH_ACK|count|id1,id2,id3..."
+  char ackMsg[MESH_PAYLOAD_LEN];
+  char* ptr = ackMsg;
+  
+  // Write header
+  ptr += sprintf(ptr, "BATCH_ACK|%u|", pendingBatchAck.count);
+  
+  // Write IDs
+  for (uint8_t i = 0; i < pendingBatchAck.count; i++) {
+    ptr += sprintf(ptr, "%u", pendingBatchAck.msgIds[i]);
+    if (i < pendingBatchAck.count - 1) {
+      ptr += sprintf(ptr, ",");
+    }
+  }
+  
+  // Send the batch ACK
+  send(ackMsg, pendingBatchAck.dest_mac, 1, 0);
+  
+  if (debugMode) {
+    debugLog("Sent batch ACK with %u message IDs to %02X:%02X:%02X:%02X:%02X:%02X",
+            pendingBatchAck.count,
+            pendingBatchAck.dest_mac[0], pendingBatchAck.dest_mac[1], 
+            pendingBatchAck.dest_mac[2], pendingBatchAck.dest_mac[3], 
+            pendingBatchAck.dest_mac[4], pendingBatchAck.dest_mac[5]);
+  }
+  
+  // Reset batch
+  pendingBatchAck.count = 0;
+}
+
+// Modify loop to send pending batch ACKs
+void ESPNowMesh::loop() {
+  // ...existing code...
+  
+  // Send any pending batch ACKs after a short delay (50ms)
+  if (pendingBatchAck.count > 0 && millis() - pendingBatchAck.lastUpdated > 50) {
+    sendBatchAck();
+  }
+}
+```
+
