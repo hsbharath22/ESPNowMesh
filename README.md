@@ -56,6 +56,76 @@ mesh.send("Hello", nullptr, 4);
 mesh.enableAutoDiscovery(10000); // every 10s
 ```
 
+## Sending Messages in ESPNowMesh
+
+The library provides multiple ways to send messages across your mesh network, depending on your reliability needs and target audience.
+
+### Broadcast Messages (to all nodes)
+
+Send a message to all nodes in the mesh network:
+
+```cpp
+// Basic broadcast to all nodes with default TTL (4)
+mesh.send("Hello, everyone!");
+
+// With explicit nullptr and custom TTL
+mesh.send("Hello with TTL 3", nullptr, 3);
+```
+
+### Unicast Messages (to specific node)
+
+Send a message to a specific node by MAC address:
+
+```cpp
+// Define target MAC address
+uint8_t targetMac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}; 
+
+// Send unicast message
+mesh.send("Hello, specific node!", targetMac);
+
+// With custom TTL
+mesh.send("Hello with TTL 5", targetMac, 5);
+```
+
+### Reliable Messages (with acknowledgment)
+
+Send messages with end-to-end acknowledgment and automatic retries:
+
+```cpp
+// Setup delivery callbacks first
+mesh.onSendSuccess(onMessageDelivered);
+mesh.onSendFailure(onMessageFailed);
+
+// Configure acknowledgment behavior
+mesh.setAckTimeout(3000);  // Wait 3 seconds for acknowledgment
+mesh.setAckRetries(3);     // Retry up to 3 times
+
+// Send with reliability guarantees
+mesh.sendReliably("Critical command", targetMac);
+```
+
+### Example: Real-World Usage
+
+```cpp
+// In setup():
+mesh.onSendSuccess([](uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivered successfully!");
+});
+
+mesh.onSendFailure([](uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivery failed after all retries!");
+});
+
+// In your application code:
+void turnOnLight(uint8_t* lightNodeMac) {
+  // For non-critical messages:
+  mesh.send("LIGHT_ON", lightNodeMac);
+  
+  // OR for critical commands with confirmation:
+  mesh.sendReliably("LIGHT_ON", lightNodeMac);
+}
+```
+
 ## Examples
 
 This library includes several examples:
@@ -124,6 +194,11 @@ MIT License
 - `void setUnicastForwarding(bool enabled);`  
   Enables smart unicast forwarding to best neighbor (based on RSSI).
 
+```cpp
+// Example mesh routing configuration:
+mesh.setUnicastForwarding(true);  // Enable smart routing (uses signal strength to pick best path)
+```
+
 ### Retry and Fallback
 - `void setRetryFallback(bool enabled);`  
   Enables retry logic using ESP-NOW send status.
@@ -133,6 +208,13 @@ MIT License
 
 - `void setFallbackToBroadcast(bool enabled);`  
   If all retries fail, fallback to broadcast if enabled.
+
+```cpp
+// Example mesh reliability configuration:
+mesh.setRetryFallback(true);      // Enable automatic retry for failed messages
+mesh.setMaxRetries(3);            // Set maximum retry attempts (default is 3)
+mesh.setFallbackToBroadcast(true);// If direct path fails, try broadcasting as last resort
+```
 
 ### End-to-End Acknowledgments
 - `void sendReliably(const char* msg, const uint8_t* target_mac, uint8_t ttl = MESH_TTL_DEFAULT);`  
