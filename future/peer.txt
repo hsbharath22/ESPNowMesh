@@ -1,0 +1,114 @@
+# Peer Cache Management in ESPNowMesh
+
+You're right - I misunderstood. Let me explain the proposed peer cache management optimization:
+
+## Current Implementation Issue
+
+Your ESPNowMesh library currently manages ESP-NOW peers as follows:
+
+```cpp
+bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt) {
+  // Create peer info structure
+  // Check if peer exists
+  // Add/modify peer directly calling ESP-NOW API
+}
+```
+
+This results in:
+1. Frequent calls to `esp_now_add_peer()` and `esp_now_mod_peer()`
+2. Inefficient handling when you have many nodes (ESP-NOW has a 20 peer limit)
+3. No prioritization of which nodes should remain as peers
+
+## Proposed Optimization - Peer Cache Management
+
+Here's how we could implement a prioritized peer management system:
+
+```cpp
+// Add to class definition
+struct PeerCacheEntry {
+  uint8_t mac[6];
+  uint8_t channel;
+  bool encrypt;
+  unsigned long lastUsed;   // When this peer was last communicated with
+  int priority;             // Communication frequency or importance
+};
+
+PeerCacheEntry peerCache[ESP_NOW_MAX_TOTAL_PEER_NUM]; // Usually 20
+uint8_t peerCacheCount = 0;
+```
+
+Implementation:
+
+```cpp
+bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt) {
+  if (!mac || isBroadcast(mac)) return true; // Skip for null or broadcast
+  
+  // Always update the peer cache entry
+  updatePeerCache(mac, channel, encrypt);
+  
+  // Check if peer already exists in ESP-NOW
+  bool peerExists = esp_now_is_peer_exist(mac);
+  if (peerExists) {
+    // If it exists, update last used time and return
+    markPeerUsed(mac);
+    return true;
+  }
+  
+  // If peer doesn't exist, we need to add it
+  // Check if we're at the ESP-NOW peer limit
+  if (getPeerCount() >= ESP_NOW_MAX_TOTAL_PEER_NUM) {
+    // Need to remove a peer before adding this one
+    evictLeastImportantPeer();
+  }
+  
+  // Now add the new peer
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, mac, 6);
+  peerInfo.channel = channel;
+  peerInfo.encrypt = encrypt;
+  
+  esp_err_t result = esp_now_add_peer(&peerInfo);
+  if (result == ESP_OK) {
+    markPeerUsed(mac);
+    return true;
+  }
+  
+  return false;
+}
+```
+
+Additional helper methods:
+
+```cpp
+// Find least recently used peer and evict it
+void ESPNowMesh::evictLeastImportantPeer() {
+  unsigned long oldestTime = 0xFFFFFFFF;
+  uint8_t* lruMac = nullptr;
+  
+  // Find least recently used peer
+  for (int i = 0; i < peerCacheCount; i++) {
+    if (peerCache[i].lastUsed < oldestTime) {
+      oldestTime = peerCache[i].lastUsed;
+      lruMac = peerCache[i].mac;
+    }
+  }
+  
+  if (lruMac) {
+    // Remove from ESP-NOW
+    esp_now_del_peer(lruMac);
+    if (debugMode) {
+      debugLog("Evicted least recently used peer: %02X:%02X:%02X:%02X:%02X:%02X",
+               lruMac[0], lruMac[1], lruMac[2], lruMac[3], lruMac[4], lruMac[5]);
+    }
+  }
+}
+```
+
+## Benefits of This Optimization
+
+1. **Better Peer Management**: Automatically prioritizes active communication partners
+2. **Handles ESP-NOW Limitations**: Works around the 20-peer limit by keeping most important peers
+3. **Improved Performance**: Reduces failed transmissions due to peer management issues
+4. **Adaptive Behavior**: Network automatically adapts to changing communication patterns
+
+This optimization would be particularly beneficial in large mesh networks where you have more than 20 potential communication partners, as it ensures the most frequently used or recently contacted nodes stay in the peer table.

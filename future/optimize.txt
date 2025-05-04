@@ -1,0 +1,1622 @@
+hsbharath22: can you check library and accordingly update readme file with all recent features and changes
+
+GitHub Copilot: I'll help you check the library code and update the README.md with any recent features and changes. Let's start by exploring the library contents to get a better understanding of the current implementation.I'm looking at the header file for the ESPNowMesh library. Let's continue exploring more of the implementation to understand all current features.I can see this is the full ESPNowMesh.h header file. Let me check the implementation file (ESPNowMesh.cpp) to understand how these features are implemented, as well as the SerialTerminal component:I've examined your ESPNowMesh library code to identify any recent features or changes that need to be updated in the README.md. Based on what I've found in the header files, let me update the README.md accordingly.
+
+Looking at the code, I noticed that:
+
+1. The library now has `useUnicast = true` as the default setting, enabling unicast forwarding by default
+2. The header includes timestamp fields for cache expiry in the `MsgCache` struct
+3. There's a `managePeer` method for efficient peer management
+4. The callbacks have been updated to be compatible with ESP32 Arduino core 3.2.0
+5. The SerialTerminal includes a reliable send command implementation (`cmdReliable`)
+
+Let me update the README.md to reflect these changes:
+````
+- `void sendReliably(const char* msg, const uint8_t* target_mac, uint8_t ttl = MESH_TTL_DEFAULT);`  
+  Sends a message with end-to-end acknowledgment and automatic retries for guaranteed delivery.
+````
+
+
+Made changes.
+
+I'll continue updating the README.md to reflect all the current library features and changes I found in the code. Let me now focus on adding other key changes like the default unicast forwarding setting and update the compatibility information.I'll continue updating the README.md based on my findings from the code inspection. The library.properties shows this is version 1.1.0, and I noticed several important features that should be highlighted in the README.
+````
+# ESPNowMesh Library v1.1.0
+
+The **ESPNowMesh** library provides a lightweight, Arduino-compatible mesh networking layer built on top of ESP-NOW for ESP32 boards.
+````
+
+
+Made changes.
+
+I'll continue updating the README.md with the key features and changes I identified from examining the code:I've examined your ESPNowMesh library and updated the README.md to reflect the current version (1.1.0) of the library and its features. 
+
+Based on my review of the code, I can see that your README now contains all the major features and API methods that are defined in your library. The key improvements and features that are now documented include:
+
+1. The default setting for unicast forwarding is now enabled by default (`useUnicast = true`)
+2. All the end-to-end acknowledgment capabilities are properly documented
+3. The SerialTerminal command interface with its `/sr` and `/sendreliable` commands
+4. Updated compatibility information for ESP32 Arduino core 3.2.0
+5. Message cache expiry and efficient peer management features
+6. Added the overview of all examples in your library, including ButtonLedDemo, ReliableMeshDemo and ComprehensiveMeshDemo
+
+The README.md now comprehensively covers all functionality I observed in your ESPNowMesh library's implementation. It properly documents all the API methods, data structures, callback signatures, and configuration constants that users would need to utilize your library effectively.
+
+Is there any specific aspect of the library you'd like me to expand on in the README.md or any additional features you'd like me to highlight?
+
+hsbharath22: can you explain what this does  mesh.setRetryFallback(true);
+
+GitHub Copilot: # Understanding `mesh.setRetryFallback(true)`
+
+In the ButtonLedDemo example, the line `mesh.setRetryFallback(true)` enables retry and fallback mechanisms for message delivery in your ESPNowMesh network.
+
+## What it does:
+
+When enabled, this feature provides enhanced reliability for message delivery through two mechanisms:
+
+1. **Retry Logic**: If an ESP-NOW message fails to be delivered (determined by the ESP-NOW send status callback), the library will automatically attempt to send it again up to a maximum number of retries (default is typically 3, configurable via `setMaxRetries()`).
+
+2. **Fallback Mechanism**: If all unicast retries fail, and if fallback to broadcast is enabled, the message will be sent as a broadcast message to reach the destination through an alternative path in the mesh.
+
+## How it improves reliability:
+
+- ESP-NOW's built-in acknowledgment provides immediate feedback if a direct transmission failed
+- The retry mechanism gives multiple chances to deliver a message if there's temporary interference
+- The broadcast fallback helps messages reach their destination even if the direct path becomes unavailable
+- Especially useful in mesh deployments where nodes might move or environmental conditions change
+
+## In the ButtonLedDemo specifically:
+
+This setting helps ensure that when you press the button on one device, the "TOGGLE_LED" command reliably reaches other nodes in the network. Without this feature, message delivery would be less reliable in challenging RF environments, potentially resulting in missed button presses.
+
+The combination of `setRetryFallback(true)` with `enableAutoDiscovery(35000)` creates a robust mesh network where nodes can find each other automatically and communicate with increased reliability.
+
+hsbharath22: can you explain these if true or false what happens
+void setUnicastForwarding(bool enabled);
+Enables smart unicast forwarding to best neighbor (based on RSSI).
+Retry and Fallback
+void setRetryFallback(bool enabled);
+
+GitHub Copilot: # Understanding ESPNowMesh Unicast & Retry Features
+
+## `mesh.setUnicastForwarding(bool enabled)`
+
+This method controls how messages are forwarded through the mesh network when targeting specific devices.
+
+### When `true` (default in recent versions):
+- Messages intended for a specific MAC address will be sent via unicast to the single "best" neighbor
+- The "best" neighbor is selected based on having the strongest RSSI (signal strength)
+- Only one copy of the message is forwarded at each hop, reducing network traffic
+- More efficient bandwidth usage since messages follow an optimized path
+- Better battery life for nodes since fewer redundant transmissions occur
+
+### When `false`:
+- All forwarded messages are sent as broadcasts to all neighbors
+- Every node in range will receive and potentially reforward the message
+- Creates multiple redundant paths for message delivery
+- Higher network traffic but potentially more reliable in very dynamic environments
+- May cause unnecessary battery drain due to redundant message processing
+
+## `mesh.setRetryFallback(bool enabled)`
+
+This method controls whether messages should be retried if delivery fails.
+
+### When `true`:
+- If an ESP-NOW transmission fails (determined by the ESP-NOW callback), the library will automatically retry sending
+- Retries will occur up to the limit set by `setMaxRetries()` (default is 3)
+- If all retries fail and `setFallbackToBroadcast(true)` is set, the message will be converted to a broadcast as a last resort
+- Provides higher reliability at the cost of slightly increased latency when issues occur
+
+### When `false`:
+- The library will make a single attempt to send each message
+- No retries will be made if delivery fails
+- No broadcast fallback occurs
+- Provides lower latency but reduced reliability in challenging RF environments
+
+## In the ReliableMeshDemo Example
+
+Your example uses both features with `true` settings, creating a robust and efficient mesh network:
+
+```cpp
+mesh.setUnicastForwarding(true);  // Enable smart routing
+mesh.setRetryFallback(true);      // Enable retry mechanism
+mesh.setFallbackToBroadcast(true);// Fallback to broadcast if retries fail
+```
+
+This configuration balances efficiency (sending through optimal paths) with reliability (retrying and fallback mechanisms), making it ideal for most IoT mesh applications where both power efficiency and delivery reliability are important.
+
+hsbharath22: can you tell me which method i should use to send broadcast message and unicast message with an example usage
+
+GitHub Copilot: # Sending Messages in ESPNowMesh
+
+The ESPNowMesh library provides several methods for sending messages. Here's how to send both broadcast and unicast messages:
+
+## Broadcast Messages (to all nodes)
+
+Use the `send()` method with a `nullptr` target MAC:
+
+```cpp
+// Send a broadcast message to all mesh nodes with default TTL (4)
+mesh.send("Hello, everyone!");
+
+// With explicit nullptr and custom TTL
+mesh.send("Hello with TTL 3", nullptr, 3);
+```
+
+## Unicast Messages (to specific node)
+
+Use the `send()` method with a target MAC address:
+
+```cpp
+// Declare a target MAC address
+uint8_t targetMac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+
+// Send a unicast message to the specific node
+mesh.send("Hello, specific node!", targetMac);
+
+// With custom TTL
+mesh.send("Hello with TTL 5", targetMac, 5);
+```
+
+## Example Using Reliable Unicast (with acknowledgment)
+
+For important messages where delivery confirmation is needed:
+
+```cpp
+// Send with end-to-end acknowledgment
+mesh.sendReliably("Critical command", targetMac);
+
+// Will trigger onSendSuccess or onSendFailure callbacks
+```
+
+## Real-world Example
+
+Here's how you might send a command to toggle an LED on a specific node:
+
+```cpp
+// Get neighbor MAC from your neighbor table
+uint8_t* targetMac = mesh.getNeighbors(count)[0].mac; // First neighbor
+
+// Normal unicast - simple but no confirmation
+mesh.send("TOGGLE_LED", targetMac);
+
+// OR with reliable delivery and confirmation
+mesh.sendReliably("TOGGLE_LED", targetMac);
+// This will trigger onSendSuccess when delivered successfully
+```
+
+The examples in the ReliableMeshDemo show both approaches - you can use the Serial Terminal to try them with `/s` (broadcast) and `/sr` (reliable unicast) commands.
+
+hsbharath22: can you add Sending Messages in ESPNowMesh broadcast, unicast and reliable way like shown to read me file
+
+GitHub Copilot: I'll add a clear explanation about sending messages in the ESPNowMesh library to your README.md file, covering broadcast, unicast, and reliable messaging with examples.
+````
+# ESPNowMesh Library v1.1.0
+
+// ...existing code...
+
+## Sending Messages in ESPNowMesh
+
+The library provides multiple ways to send messages across your mesh network, depending on your reliability needs and target audience.
+
+### Broadcast Messages (to all nodes)
+
+Send a message to all nodes in the mesh network:
+
+```cpp
+// Basic broadcast to all nodes with default TTL (4)
+mesh.send("Hello, everyone!");
+
+// With explicit nullptr and custom TTL
+mesh.send("Hello with TTL 3", nullptr, 3);
+```
+
+### Unicast Messages (to specific node)
+
+Send a message to a specific node by MAC address:
+
+```cpp
+// Define target MAC address
+uint8_t targetMac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF}; 
+
+// Send unicast message
+mesh.send("Hello, specific node!", targetMac);
+
+// With custom TTL
+mesh.send("Hello with TTL 5", targetMac, 5);
+```
+
+### Reliable Messages (with acknowledgment)
+
+Send messages with end-to-end acknowledgment and automatic retries:
+
+```cpp
+// Setup delivery callbacks first
+mesh.onSendSuccess(onMessageDelivered);
+mesh.onSendFailure(onMessageFailed);
+
+// Configure acknowledgment behavior
+mesh.setAckTimeout(3000);  // Wait 3 seconds for acknowledgment
+mesh.setAckRetries(3);     // Retry up to 3 times
+
+// Send with reliability guarantees
+mesh.sendReliably("Critical command", targetMac);
+```
+
+### Example: Real-World Usage
+
+```cpp
+// In setup():
+mesh.onSendSuccess([](uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivered successfully!");
+});
+
+mesh.onSendFailure([](uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivery failed after all retries!");
+});
+
+// In your application code:
+void turnOnLight(uint8_t* lightNodeMac) {
+  // For non-critical messages:
+  mesh.send("LIGHT_ON", lightNodeMac);
+  
+  // OR for critical commands with confirmation:
+  mesh.sendReliably("LIGHT_ON", lightNodeMac);
+}
+```
+
+## Features
+
+// ...existing code...
+````
+
+
+Made changes.
+
+I've added a comprehensive "Sending Messages in ESPNowMesh" section to the README.md file that clearly explains how to use the library's three main messaging methods:
+
+1. **Broadcast Messages** - Shows how to send messages to all nodes in the mesh with examples of both basic and TTL-customized broadcasts
+2. **Unicast Messages** - Demonstrates sending directed messages to specific nodes by MAC address
+3. **Reliable Messages** - Explains the acknowledgment system with code samples showing how to set up callbacks and configuration
+
+The section also includes a practical real-world example that shows how you might implement a light control function, with both standard and reliable messaging options.
+
+This addition complements the existing API documentation and should help users quickly understand the different messaging approaches available in the library and when to use each one.
+
+Is there any other aspect of the messaging system you'd like me to clarify or add to the documentation?
+
+hsbharath22: if we want to use inline mac address rather than variable in below call how to do it
+// Send unicast message
+mesh.send("Hello, specific node!", targetMac);
+lets say mac is F0:F5:BD:50:3E:60
+
+GitHub Copilot: # Using Inline MAC Address for Unicast Messages
+
+You can use a temporary array to pass an inline MAC address to the `mesh.send()` method instead of using a predefined variable. Here's how to do it for the MAC address `F0:F5:BD:50:3E:60`:
+
+```cpp
+// Send unicast message with inline MAC address
+mesh.send("Hello, specific node!", (uint8_t[]){0xF0, 0xF5, 0xBD, 0x50, 0x3E, 0x60});
+```
+
+This creates an anonymous array of `uint8_t` values containing the MAC address bytes and passes it directly to the function.
+
+The same approach works for reliable messaging:
+
+```cpp
+// Send reliable unicast with inline MAC address
+mesh.sendReliably("Critical command", (uint8_t[]){0xF0, 0xF5, 0xBD, 0x50, 0x3E, 0x60});
+```
+
+This technique is useful for quick testing or when you don't need to store the MAC address for later use.
+
+hsbharath22: what if i want to send like 
+mesh.send("Hello", "F0:F5:BD:50:3E:60");
+
+GitHub Copilot: # Using String MAC Addresses with ESPNowMesh
+
+The ESPNowMesh library doesn't directly accept a string MAC address format like `"F0:F5:BD:50:3E:60"` in the `send()` method. However, you can easily add a helper function to your code that converts a string MAC to the required byte array format.
+
+Here's a solution you can use:
+
+```cpp
+// Helper function to convert MAC string to byte array
+uint8_t* stringToMac(const char* macStr) {
+  static uint8_t mac[6];
+  sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
+         &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+  return mac;
+}
+
+// Now you can use it like this:
+mesh.send("Hello, specific node!", stringToMac("F0:F5:BD:50:3E:60"));
+
+// Or with reliable messaging:
+mesh.sendReliably("Critical command", stringToMac("F0:F5:BD:50:3E:60"));
+```
+
+This helper function converts the colon-separated MAC address string to the byte array format that the library requires. The `static` keyword ensures the array persists beyond the function call.
+
+You could also consider submitting this as a feature request to the library author - supporting string MAC addresses would be a nice convenience feature!
+
+Similar code found with 3 license types
+
+hsbharath22: which is most efficient way to do
+
+GitHub Copilot: # Most Efficient Way to Send Mesh Messages
+
+For the most efficient unicast messaging in the ESPNowMesh library, your best options are:
+
+## 1. Using Byte Array (Most Efficient)
+
+```cpp
+// Using a byte array literal - most CPU and memory efficient 
+mesh.send("Hello, specific node!", (uint8_t[]){0xF0, 0xF5, 0xBD, 0x50, 0x3E, 0x60});
+```
+
+This approach:
+- Avoids allocating a separate variable
+- Creates the array directly inline
+- Has no string parsing overhead
+- Requires minimal memory
+
+## 2. Using a Pre-defined MAC Address (Good for Repeated Use)
+
+```cpp
+// Best when you need to reuse the MAC address multiple times
+uint8_t targetMac[6] = {0xF0, 0xF5, 0xBD, 0x50, 0x3E, 0x60};
+mesh.send("Hello, specific node!", targetMac);
+```
+
+This approach:
+- Is best when you send to the same device repeatedly
+- Avoids recreating the array each time
+- Provides a named variable for clarity
+
+## 3. Using a Helper Function (Convenience at Small Cost)
+
+```cpp
+// Helper function approach - convenient but slightly less efficient
+uint8_t* stringToMac(const char* macStr) {
+  static uint8_t mac[6];
+  sscanf(macStr, "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", &mac[0], &mac[1], &mac[2], &mac[3], &mac[4], &mac[5]);
+  return mac;
+}
+
+// Usage
+mesh.send("Hello, specific node!", stringToMac("F0:F5:BD:50:3E:60"));
+```
+
+This approach:
+- Lets you use human-readable MAC address strings
+- Has a small parsing overhead
+- Is convenient for user input or configuration files
+- Uses slightly more memory and CPU time
+
+The first approach (byte array literal) is the most efficient in terms of both memory and CPU usage.
+
+Similar code found with 3 license types
+
+hsbharath22: when we pass target mac to send func it automatically sent as unicast if not its broadcast in that case is mesh.setUnicastForwarding(bool enabled) really required
+
+GitHub Copilot: # Understanding `setUnicastForwarding` vs Basic Unicast Sending
+
+You've identified an important distinction in the ESPNowMesh library's messaging behavior. Let me clarify:
+
+## Basic Unicast vs Unicast Forwarding
+
+When you call:
+```cpp
+mesh.send("Hello, specific node!", targetMac);
+```
+
+You're correct that this already sends a unicast message directly to the specified MAC address. However, `mesh.setUnicastForwarding(bool enabled)` controls something different:
+
+## What `setUnicastForwarding(true)` Does:
+
+This setting controls **how messages are forwarded through intermediate nodes** when the target is multiple hops away:
+
+1. **Without Unicast Forwarding (false):**
+   - When an intermediate node needs to forward a message meant for another node
+   - It will broadcast to ALL its neighbors
+   - Every node in range receives the message and checks if it should forward it
+   - Creates redundant traffic but might be more reliable in unstable networks
+
+2. **With Unicast Forwarding (true):**
+   - Intermediate nodes select a SINGLE best neighbor (based on RSSI)
+   - They forward the message ONLY to that chosen neighbor
+   - Reduces network traffic significantly
+   - More efficient power usage since fewer nodes process each message
+
+## Key Distinction:
+
+- `targetMac` in `send()` - Determines the **final destination** of the message
+- `setUnicastForwarding()` - Determines the **forwarding strategy** used by intermediate nodes
+
+So yes, `setUnicastForwarding(true)` is still valuable even when you're using unicast sending, as it optimizes how multi-hop messages travel through your mesh network.
+
+hsbharath22: should i explicitly set it or even if i dont set will it auto set to default true in library
+
+GitHub Copilot: # Setting `setUnicastForwarding()` in ESPNowMesh
+
+## Default Value
+
+In the current version (v1.1.0) of the ESPNowMesh library, `useUnicast` is set to `true` by default. This means:
+
+- If you don't explicitly call `setUnicastForwarding()`, the library will use unicast forwarding by default
+- This is a change from earlier versions where it defaulted to `false`
+
+## Recommendation
+
+For clarity in your code, I would recommend explicitly setting it anyway:
+
+```cpp
+// Explicitly set for code clarity and future-proofing
+mesh.setUnicastForwarding(true);
+```
+
+This has several benefits:
+1. Makes your intention clear to anyone reading your code
+2. Future-proofs against possible library changes to defaults
+3. Documents your mesh configuration choices
+4. Makes debugging easier since configuration is explicit
+
+If you're working with battery-powered nodes or in a dense environment, the unicast forwarding optimization is quite valuable for reducing unnecessary radio traffic, so it's good to be explicit about using it.
+
+hsbharath22: if i set setUnicastForwarding false lets say i have 4 nodes a b c d each wiith one of the other range so if a sends message how its sent to d
+
+GitHub Copilot: # How Messages Flow with `setUnicastForwarding(false)`
+
+When you set `mesh.setUnicastForwarding(false)`, the message forwarding behavior changes to use broadcast forwarding. Let's trace how a message would travel from node A to node D in your four-node scenario (A-B-C-D), where each node is only in range of its adjacent nodes.
+
+## Message Flow with `setUnicastForwarding(false)`:
+
+1. **Node A sends a message addressed to Node D**:
+   - Node A broadcasts the message to all neighbors (only B is in range)
+   - Message includes D's MAC as final destination and A's MAC as origin
+
+2. **Node B receives the broadcast**:
+   - B checks if the message is for itself (it's not, it's for D)
+   - B sees the message still has TTL > 0
+   - B broadcasts the message to all its neighbors (A and C)
+
+3. **Node C receives B's broadcast**:
+   - C checks if the message is for itself (it's not, it's for D)
+   - C sees the message still has TTL > 0
+   - C broadcasts the message to all its neighbors (B and D)
+
+4. **Node D receives C's broadcast**:
+   - D recognizes it's the intended recipient
+   - D processes the message
+   - D doesn't forward the message further
+
+5. **Meanwhile**:
+   - Node A receives B's rebroadcast but ignores it (already seen)
+   - Node B receives C's rebroadcast but ignores it (already seen)
+
+## Key Differences from Unicast Forwarding:
+
+- **More network traffic**: Every intermediate node broadcasts to all neighbors
+- **Redundant processing**: Nodes that already saw the message must check and discard duplicates
+- **Higher battery consumption**: All nodes in range must process every forwarded message
+- **Higher reliability**: The message follows all possible paths, not just one "best" path
+- **Increased network congestion**: In dense networks, this can cause collisions and delays
+
+This flooding approach is less efficient but more reliable in unstable networks where the best path might change frequently or where signal quality varies significantly.
+
+hsbharath22: so that means if i set setUnicastForwarding = false and call send func with target mac instead of unicast it sends as broadcast?
+
+GitHub Copilot: # Understanding `setUnicastForwarding(false)` and Target MAC
+
+No, that's not quite how it works. Let me clarify the behavior:
+
+## When using `mesh.send(message, targetMac)`:
+
+1. **Initial transmission is always unicast** when you specify a target MAC
+   - Even with `setUnicastForwarding(false)`
+   - The message is sent directly to the target if in range
+
+2. **The difference is in how other nodes forward the message**:
+   - With `setUnicastForwarding(true)`: Intermediate nodes use unicast to forward to their best neighbor
+   - With `setUnicastForwarding(false)`: Intermediate nodes use broadcast to forward to all neighbors
+
+## Examples:
+
+### With `setUnicastForwarding(false)`:
+```cpp
+mesh.setUnicastForwarding(false);
+mesh.send("Hello D!", targetMacD); // Initial send is still unicast to first hop
+// But intermediate nodes will broadcast to forward the message
+```
+
+### With `setUnicastForwarding(true)`:
+```cpp
+mesh.setUnicastForwarding(true);  // Like in ReliableMeshDemo
+mesh.send("Hello D!", targetMacD); // Initial send is unicast to first hop
+// Intermediate nodes will also unicast to forward the message
+```
+
+The setting controls the forwarding behavior for multi-hop messages, not the initial transmission method. When you specify a target MAC address, the library always attempts a direct unicast first.
+
+hsbharath22: ok tell me if i call  from node a mesh.send("Hello D!", node b); and if node b is not in range of node a what happens
+
+GitHub Copilot: # What Happens When Sending to an Out-of-Range Node
+
+If you call `mesh.send("Hello D!", nodeBMac)` from Node A, and Node B is not within direct radio range of Node A, the following occurs:
+
+## Immediate Result:
+- The ESP-NOW send operation will fail at the hardware level
+- ESP-NOW's callback will return a failure status
+- The message will not be delivered to Node B directly
+
+## What Happens Next Depends on Configuration:
+
+### With Default Settings (as in ReliableMeshDemo):
+```cpp
+mesh.setRetryFallback(true);      // Enabled
+mesh.setFallbackToBroadcast(true);// Enabled
+```
+
+1. **Retry Logic Activates**:
+   - The library will retry the direct unicast send (typically 3 times)
+   - All these attempts will fail because Node B is out of range
+
+2. **Broadcast Fallback Triggers**:
+   - After all retries fail, the library converts the message to a broadcast
+   - The message is sent as a broadcast to all nodes in range of Node A
+   - The message still contains Node B's MAC as the intended final recipient
+
+3. **Mesh Forwarding**:
+   - Any node that receives this broadcast will check if it's the intended recipient
+   - If not, and if TTL > 0, it will forward the message according to unicast/broadcast rules
+   - If any intermediate node can reach Node B, the message may eventually arrive
+
+### With Fallback Features Disabled:
+```cpp
+mesh.setRetryFallback(false);     // Disabled
+mesh.setFallbackToBroadcast(false);// Disabled
+```
+
+- The initial send fails
+- No retries or fallback occurs
+- The message is simply lost
+- No delivery notification is provided to the application
+
+This demonstrates why the retry and fallback features are valuable in mesh networks - they significantly increase the chances of message delivery when direct communication isn't possible.
+
+hsbharath22: can you update this example lines in readme with comments mainly
+ mesh.setUnicastForwarding(true);  // Enable smart routing
+  mesh.setRetryFallback(true);      // Enable retry mechanism
+  mesh.setFallbackToBroadcast(true);// Fallback to broadcast if retries fail
+  
+
+GitHub Copilot: I'll update the README.md to include these commented example lines for better clarity about the routing and fallback options.I'll update the README.md to add commented example lines for the mesh networking configuration options to help users better understand the routing and fallback settings.
+````
+### Unicast Routing
+- `void setUnicastForwarding(bool enabled);`  
+  Enables smart unicast forwarding to best neighbor (based on RSSI).
+
+```cpp
+// Example mesh routing configuration:
+mesh.setUnicastForwarding(true);  // Enable smart routing (uses signal strength to pick best path)
+```
+
+### Retry and Fallback
+- `void setRetryFallback(bool enabled);`  
+  Enables retry logic using ESP-NOW send status.
+
+- `void setMaxRetries(uint8_t retries);`  
+  Maximum number of retry attempts for failed unicast sends.
+
+- `void setFallbackToBroadcast(bool enabled);`  
+  If all retries fail, fallback to broadcast if enabled.
+
+```cpp
+// Example mesh reliability configuration:
+mesh.setRetryFallback(true);      // Enable automatic retry for failed messages
+mesh.setMaxRetries(3);            // Set maximum retry attempts (default is 3)
+mesh.setFallbackToBroadcast(true);// If direct path fails, try broadcasting as last resort
+```
+````
+
+
+Made changes.
+
+I've updated the README.md file with detailed, commented examples for the routing and fallback configuration methods. Now users will have a clearer understanding of each option's purpose:
+
+1. For unicast routing, I added this example:
+```cpp
+// Example mesh routing configuration:
+mesh.setUnicastForwarding(true);  // Enable smart routing (uses signal strength to pick best path)
+```
+
+2. For retry and fallback mechanisms, I expanded with a more complete example:
+```cpp
+// Example mesh reliability configuration:
+mesh.setRetryFallback(true);      // Enable automatic retry for failed messages
+mesh.setMaxRetries(3);            // Set maximum retry attempts (default is 3)
+mesh.setFallbackToBroadcast(true);// If direct path fails, try broadcasting as last resort
+```
+
+These practical examples should help users understand what each configuration method does and how they work together to create a robust mesh network. The descriptive comments make it clear what routing behaviors to expect when using these settings.
+
+Is there anything specific about these configuration options you'd like me to explain further or any other sections of the README you'd like to enhance?
+
+hsbharath22: can you show me bare minimum code to use this libray for sending reliable message
+
+GitHub Copilot: # Bare Minimum Code for ESPNowMesh Reliable Messaging
+
+Here's the simplest possible code to set up an ESPNowMesh network and send reliable messages:
+
+```cpp
+#include <ESPNowMesh.h>
+
+// Create mesh instance
+ESPNowMesh mesh;
+
+// Callback for received messages
+void onMeshMessage(const char* msg, const uint8_t* sender) {
+  Serial.print("Message from: ");
+  for (int i = 0; i < 6; i++) {
+    Serial.printf("%02X", sender[i]);
+    if (i < 5) Serial.print(":");
+  }
+  Serial.print(" -> ");
+  Serial.println(msg);
+}
+
+// Success callback
+void onMessageDelivered(uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivered successfully!");
+}
+
+// Failure callback
+void onMessageFailed(uint32_t msg_id, const uint8_t* dest_mac) {
+  Serial.println("Message delivery failed!");
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+  
+  // Initialize mesh with default settings
+  mesh.begin();
+  mesh.onReceive(onMeshMessage);
+  
+  // Configure reliable messaging
+  mesh.setAckTimeout(3000);         // 3 seconds for ACK timeout
+  mesh.setAckRetries(3);            // Retry 3 times
+  mesh.onSendSuccess(onMessageDelivered);
+  mesh.onSendFailure(onMessageFailed);
+  
+  // Enable reliability features
+  mesh.setRetryFallback(true);
+  mesh.setFallbackToBroadcast(true);
+  
+  // Send a discovery broadcast to find neighbors
+  mesh.broadcastDiscovery();
+  
+  // Example target MAC (replace with actual device MAC)
+  uint8_t targetMac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  
+  // Send reliable message
+  mesh.sendReliably("Important message!", targetMac);
+}
+
+void loop() {
+  // Process mesh events (critical)
+  mesh.loop();
+  
+  // Your application code here
+  delay(1000);
+}
+```
+
+## Key Components:
+
+1. **Initialize the mesh**: `mesh.begin()`
+2. **Set message handlers**: `mesh.onReceive(onMeshMessage)`
+3. **Configure reliability**: Set timeout, retries, and callbacks
+4. **Enable retry & fallback**: Ensures delivery even if direct path fails
+5. **Call mesh.loop()**: Essential for processing mesh events
+
+Make sure to replace the example MAC address with the actual MAC of your target device. You can get a device's MAC by calling `WiFi.macAddress()` and printing it in the Serial monitor.
+
+hsbharath22: is it possible to omit these two
+ mesh.setAckTimeout(3000);         // 3 seconds for ACK timeout
+  mesh.setAckRetries(3);            // Retry 3 times
+
+  wont the lib take the default values and set it if we dont explicitly mention it
+
+GitHub Copilot: # About Default Values for ACK Timeout and Retries
+
+Yes, you can absolutely omit those two lines:
+
+```cpp
+mesh.setAckTimeout(3000);         // 3 seconds timeout for ACKs
+mesh.setAckRetries(3);            // Retry 3 times before giving up
+```
+
+The library will use these exact default values if you don't set them explicitly:
+- Default ACK timeout: 3000ms (3 seconds)
+- Default ACK retries: 3 attempts
+
+In the ESPNowMesh class implementation, these defaults are set in the constructor:
+
+```cpp
+ESPNowMesh::ESPNowMesh() {
+  // ...other initialization...
+  _ackTimeoutMs = 3000;  // Default 3 seconds
+  _ackRetries = 3;       // Default 3 retries
+  // ...other initialization...
+}
+```
+
+So a minimal reliable messaging setup can simply be:
+
+```cpp
+// Configure reliable messaging (minimal)
+mesh.onSendSuccess(onMessageDelivered);
+mesh.onSendFailure(onMessageFailed);
+
+// Send reliable message
+mesh.sendReliably("Important message!", targetMac);
+```
+
+The only critical parts for reliable messaging are:
+1. Registering the success/failure callbacks 
+2. Using `sendReliably()` instead of `send()`
+
+Setting explicit values is only needed if you want different timeout/retry values than the defaults.
+
+hsbharath22: i am seeing this line in serial logs
+[MESH] Updated peer FF:FF:FF:FF:FF:FF channel: 1
+
+where FF represents broadcast dont you think this is not needed to be added or updated in peer can you nalise the code and tell me what the best way to go about
+
+GitHub Copilot: # ESP-NOW Broadcast Peer Management Analysis
+
+You're right to question the peer management for broadcast addresses (FF:FF:FF:FF:FF:FF). I've analyzed the code and identified what's happening:
+
+## The Issue
+
+In the `managePeer()` method, the library is treating broadcast addresses just like any other peer address, which leads to:
+
+```
+[MESH] Updated peer FF:FF:FF:FF:FF:FF channel: 1
+```
+
+This is unnecessary because:
+
+1. ESP-NOW's broadcast functionality doesn't require the broadcast address to be explicitly registered as a peer
+2. Each call to update the broadcast peer consumes processing time with no benefit
+3. It clutters the debug logs with redundant information
+
+## Source of the Problem
+
+The issue occurs in several places, but primarily:
+
+```cpp
+// In the send() method:
+uint8_t broadcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+managePeer(broadcastAddr, wifiChannel, false);
+```
+
+And:
+
+```cpp
+// In broadcastDiscovery():
+uint8_t broadcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+managePeer(broadcastAddr, wifiChannel, false);
+```
+
+## Better Approach
+
+You should modify the `managePeer()` method to skip peer management for broadcast addresses:
+
+```cpp
+bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt)
+{
+  if (!mac) return false;
+  
+  // Skip peer management for broadcast addresses
+  if (isBroadcast(mac)) {
+    return true;  // Return success but do nothing
+  }
+  
+  // Rest of the function remains unchanged
+  // ...
+}
+```
+
+This simple check would prevent unnecessary peer management for broadcast addresses while still allowing the function to handle unicast peers properly. The `isBroadcast()` helper function already exists in your code, so this is a clean and efficient solution.
+
+This change would eliminate the unnecessary log messages and slightly improve efficiency, especially in large mesh networks where these operations happen frequently.
+
+hsbharath22: ok then add this fix
+
+GitHub Copilot: I'll add the fix to the `managePeer` method to optimize how it handles broadcast addresses. This will prevent unnecessary peer management for broadcast addresses and eliminate those redundant log messages.
+````
+// New efficient peer management that uses esp_now_mod_peer() when possible
+bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt)
+{
+  if (!mac) return false;
+  
+  // Skip peer management for broadcast addresses
+  if (isBroadcast(mac)) {
+    if (debugMode) {
+      debugLog("Skipping peer management for broadcast address");
+    }
+    return true;  // Return success but do nothing
+  }
+
+  // Use the instance channel if not specified
+  if (channel == 0) {
+    channel = wifiChannel;
+  }
+
+  // Create peer info structure
+  esp_now_peer_info_t peerInfo = {};
+  memcpy(peerInfo.peer_addr, mac, 6);
+  peerInfo.channel = channel;
+  peerInfo.encrypt = encrypt;
+  
+  // Check if peer already exists
+  bool peerExists = esp_now_is_peer_exist(mac);
+  
+  if (peerExists) {
+    // Try to modify the existing peer first (more efficient)
+    esp_err_t result = esp_now_mod_peer(&peerInfo);
+    
+    if (result == ESP_OK) {
+      if (debugMode) {
+        debugLog("Updated peer %02X:%02X:%02X:%02X:%02X:%02X channel: %d", 
+                mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], channel);
+      }
+      return true;
+    }
+    else {
+      // Modification failed, try delete and re-add
+      if (debugMode) {
+        debugLog("Failed to modify peer, trying delete and re-add");
+      }
+      esp_now_del_peer(mac);
+    }
+  }
+  
+  // Add the peer
+  esp_err_t result = esp_now_add_peer(&peerInfo);
+  
+  if (result == ESP_OK) {
+    if (debugMode) {
+      debugLog("%s peer %02X:%02X:%02X:%02X:%02X:%02X channel: %d", 
+              peerExists ? "Re-added" : "Added new", 
+              mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], channel);
+    }
+    return true;
+  }
+  else {
+    if (debugMode) {
+      debugLog("Failed to add peer: %d", result);
+    }
+    return false;
+  }
+}
+````
+
+
+Made changes.
+
+The fix has been successfully implemented in the ESPNowMesh library. I've modified the `managePeer` method to skip peer management operations for broadcast addresses (FF:FF:FF:FF:FF:FF).
+
+Now when your mesh library encounters a broadcast address, it will:
+1. Detect it's a broadcast address using the existing `isBroadcast()` function
+2. Log a debug message indicating it's skipping peer management
+3. Return success without performing unnecessary peer operations
+
+This optimization eliminates those redundant log messages you were seeing and also improves efficiency by not attempting to register or update the broadcast address as a peer unnecessarily.
+
+The implementation checks for broadcast addresses at the very beginning of the method, which ensures that no ESP-NOW API calls are made for broadcast addresses. This should provide a cleaner debug log output and slightly better performance, especially in larger mesh networks where broadcasts happen frequently.
+
+Would you like me to add anything else to the README.md to document this optimization?
+
+hsbharath22: how can this feature be implemented can you tell me overview and plan and how this might work in our library
+
+Dynamic Channel Management
+// Enable automatic channel selection based on interference
+Automatically finding the least congested WiFi channel would improve reliability in crowded environments.
+
+GitHub Copilot: # Dynamic Channel Management for ESPNowMesh
+
+## Overview of Dynamic Channel Management
+
+This feature would allow your ESPNowMesh network to automatically select the best WiFi channel based on interference levels, improving reliability in crowded environments. Here's how it could be implemented:
+
+## Implementation Plan
+
+### 1. Channel Quality Assessment
+
+```cpp
+struct ChannelStats {
+  uint8_t channel;
+  int networks;        // Count of networks on channel
+  int averageRSSI;     // Average signal strength
+  float interference;  // Calculated interference score
+};
+
+// Scan channels to find the least congested one
+uint8_t findBestChannel() {
+  const uint8_t channels[] = {1, 6, 11}; // Non-overlapping channels
+  ChannelStats bestChannel = {0, 999, -999, 999.0};
+  
+  for (uint8_t ch : channels) {
+    ChannelStats stats = scanChannelQuality(ch);
+    if (stats.interference < bestChannel.interference) {
+      bestChannel = stats;
+    }
+  }
+  
+  return bestChannel.channel;
+}
+```
+
+### 2. Channel Change Coordination
+
+```cpp
+void ESPNowMesh::initiateChannelChange() {
+  uint8_t newChannel = findBestChannel();
+  
+  // Create and broadcast channel change announcement
+  char channelChangeMsg[32];
+  snprintf(channelChangeMsg, sizeof(channelChangeMsg), 
+           "CH_CHANGE|%d|%lu", newChannel, millis());
+  
+  send(channelChangeMsg, nullptr, MESH_TTL_DEFAULT, 0);
+  
+  // Schedule our own channel change after a delay
+  scheduleChannelChange(newChannel);
+}
+```
+
+### 3. Mesh API Extension
+
+```cpp
+// Public API
+void enableDynamicChannelManagement(unsigned long assessInterval = 300000);
+void disableDynamicChannelManagement();
+void initiateChannelChange(); // Manual trigger
+
+// Usage example:
+mesh.enableDynamicChannelManagement(600000); // Check every 10 minutes
+```
+
+## How It Would Work
+
+1. **Periodic Assessment**:
+   - Every `assessInterval` milliseconds, the designated coordinator node scans WiFi channels
+   - It evaluates each channel based on network count, signal strength, and other metrics
+
+2. **Coordinated Channel Change**:
+   - The coordinator broadcasts a special message with the new channel information
+   - All nodes receive this message and schedule their channel change
+   - After a short delay, all nodes switch to the new channel simultaneously
+
+3. **Mesh Recovery**:
+   - If nodes miss the channel change message, they'll eventually timeout
+   - Each node would implement a channel-scanning recovery mechanism
+   - After failing to communicate, they would scan all channels until finding the mesh again
+
+This implementation would maintain network connectivity while adapting to changing radio environments, making your mesh network more reliable in areas with many WiFi networks or other sources of interference.
+
+hsbharath22: can we use wifi and esp at the same time 
+
+GitHub Copilot: 
+
+hsbharath22: can we use wifi and esp now at same time
+
+GitHub Copilot: # WiFi and ESP-NOW Coexistence on ESP32
+
+Yes, you can use WiFi and ESP-NOW simultaneously on ESP32 devices with some important considerations. The current ESPNowMesh library implementation doesn't support this directly, but I can explain how it could be done.
+
+## Current Implementation Limitation
+
+Looking at the code, the library currently:
+```cpp
+// In the begin() method
+WiFi.mode(WIFI_STA);
+// ...
+WiFi.disconnect();
+// ...
+esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
+```
+
+This forces a fixed channel and disconnection from any WiFi networks, which prevents normal WiFi operation.
+
+## How to Enable Coexistence
+
+To enable both WiFi and ESP-NOW mesh:
+
+1. **Use STA+AP Mode**: 
+   ```cpp
+   WiFi.mode(WIFI_AP_STA);  // Instead of just WIFI_STA
+   ```
+
+2. **Connect to WiFi without disconnecting**:
+   ```cpp
+   WiFi.begin(ssid, password);
+   // Don't call WiFi.disconnect()
+   ```
+
+3. **Channel Adaptation**:
+   - Remove the fixed channel setting
+   - Instead, adapt ESP-NOW to use the channel of the connected WiFi network:
+   ```cpp
+   int channel = WiFi.channel();
+   this->wifiChannel = channel;
+   ```
+
+4. **Peer Management Updates**:
+   - Update all peers to use the WiFi channel
+   - Handle channel changes when WiFi roams
+
+## Limitations of Simultaneous Operation
+
+1. **Single Radio**: Both share the same radio hardware, causing:
+   - Increased latency for both
+   - Potential packet loss when one is busy
+   - Bandwidth limitations
+
+2. **Channel Lock**: ESP-NOW peers must be on the same channel as your WiFi connection
+
+3. **Reliability Impact**: Mesh reliability may decrease when WiFi is actively transferring data
+
+This could be implemented as a new feature or mode in the ESPNowMesh library with options to prioritize either WiFi or mesh traffic depending on application needs.
+
+hsbharath22: in our library are we updating and removing nodes from the nodes table when nodes are  switched off or gone out  range
+
+GitHub Copilot: # Node Aging and Removal in ESPNowMesh Library
+
+Looking through your ESPNowMesh library implementation, I've analyzed how it handles nodes that go offline or out of range. Here's what I found:
+
+## Current Implementation
+
+Currently, your library **does not automatically remove nodes** from the neighbor table when they go out of range or power off. The library has:
+
+1. **Neighbor Addition/Updates:**
+   ```cpp
+   void ESPNowMesh::updateNeighbor(const uint8_t *mac, const char *role, int rssi)
+   {
+     // Updates neighbor timestamp and RSSI when seen
+     neighbors[i].lastSeen = millis();
+     neighbors[i].rssi = rssi;
+     // ...
+   }
+   ```
+
+2. **Timestamp Tracking:**
+   - Each neighbor has a `lastSeen` timestamp
+   - This value is updated whenever a message is received from that neighbor
+
+3. **Missing Implementation:**
+   - No code that periodically checks for stale neighbors
+   - No automatic cleanup of neighbors that haven't been seen recently
+
+## Recommended Implementation
+
+You should add a method to clean up old neighbors in the `loop()` function:
+
+```cpp
+void ESPNowMesh::loop()
+{
+  // Existing code...
+  
+  // Check for stale neighbors every 60 seconds
+  static unsigned long lastNeighborCleanup = 0;
+  unsigned long currentTime = millis();
+  if (currentTime - lastNeighborCleanup > 60000) {
+    lastNeighborCleanup = currentTime;
+    
+    // Define expiry threshold (e.g., 5 minutes of no contact)
+    const unsigned long NEIGHBOR_EXPIRY_MS = 300000;
+    
+    // Compact the neighbor array by removing stale entries
+    int removed = 0;
+    for (int i = 0; i < neighborCount; i++) {
+      if (currentTime - neighbors[i].lastSeen > NEIGHBOR_EXPIRY_MS) {
+        // Log the removal
+        if (debugMode) {
+          debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, not seen for %lu ms",
+                  neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                  neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+                  currentTime - neighbors[i].lastSeen);
+        }
+        
+        // Shift remaining elements
+        for (int j = i; j < neighborCount - 1; j++) {
+          memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+        }
+        
+        neighborCount--;
+        i--; // Reprocess this index since it now contains the next element
+        removed++;
+      }
+    }
+    
+    if (debugMode && removed > 0) {
+      debugLog("Removed %d stale neighbors, %d active neighbors remain", removed, neighborCount);
+    }
+  }
+  
+  // Rest of existing loop() code...
+}
+```
+
+This implementation would periodically check for neighbors that haven't been seen in a while and remove them from the table, ensuring your routing decisions are based on current network topology.
+
+hsbharath22: presently how is last node seen time know is there any hearbeat signal implemented hows all this working
+
+GitHub Copilot: # Node Last Seen Mechanism in ESPNowMesh
+
+Looking at your ESPNowMesh implementation, I can see how the library tracks "last seen" status for nodes in the mesh network:
+
+## Current Implementation
+
+The library tracks when nodes were last seen using two methods:
+
+1. **Passive Detection** (primary method):
+   - In the `updateNeighbor()` method (line ~1568), each time a message is received from a node:
+     ```cpp
+     neighbors[i].lastSeen = millis();
+     ```
+   - This timestamp is updated whenever *any* message is received from a node
+   - No explicit heartbeats are sent by default
+
+2. **Auto-discovery** (secondary refresh mechanism):
+   - When `enableAutoDiscovery()` is called, the library broadcasts discovery requests periodically
+   - The discovery interval is configurable (e.g., `mesh.enableAutoDiscovery(600000)` for every 10 minutes)
+   - Nodes respond to discovery requests with their role and status
+   - This indirectly refreshes the "last seen" timestamps
+
+## How It Works
+
+1. Normal communication between nodes refreshes timestamps
+2. Periodic discovery broadcasts (if enabled) ensure timestamps get updated even for idle nodes
+3. The timestamp is stored in the `Neighbor` struct for each node
+
+However, I notice that **no mechanism currently exists to remove stale nodes** from the neighbor table. If a node goes offline, its entry remains in the neighbor table indefinitely.
+
+## What's Missing
+
+The library needs a method to remove stale neighbors:
+- Automatic cleanup of nodes that haven't been seen for a defined period
+- Aging out nodes with very old timestamps
+- Using this information in routing decisions
+
+This would be a valuable addition to your ESPNowMesh library to maintain an accurate view of the current network topology.
+
+hsbharath22: ok how do i implement it 
+
+GitHub Copilot: # Implementing Node Aging in ESPNowMesh
+
+Looking at your ESPNowMesh code, I noticed that while your library tracks neighbor "last seen" times, it doesn't have automatic cleanup for stale neighbors. Let me show you how to implement this feature:
+
+## Implementation Plan
+
+Add a node aging mechanism to your existing `loop()` method:
+
+```cpp
+void ESPNowMesh::loop()
+{
+  // Existing code...
+  
+  // Check for stale neighbors every minute
+  static unsigned long lastNeighborCleanup = 0;
+  unsigned long currentTime = millis();
+  if (currentTime - lastNeighborCleanup > 60000) { // Run every 60 seconds
+    lastNeighborCleanup = currentTime;
+    
+    // Define expiry threshold (5 minutes of no contact)
+    const unsigned long NEIGHBOR_EXPIRY_MS = 300000;
+    
+    // Clean up stale neighbors
+    int removed = 0;
+    for (uint8_t i = 0; i < neighborCount; i++) {
+      // Check if this neighbor has expired
+      if (currentTime - neighbors[i].lastSeen > NEIGHBOR_EXPIRY_MS) {
+        if (debugMode) {
+          debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, not seen for %lu ms",
+                  neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                  neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+                  currentTime - neighbors[i].lastSeen);
+        }
+        
+        // Shift remaining elements to compact the array
+        for (uint8_t j = i; j < neighborCount - 1; j++) {
+          memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+        }
+        
+        neighborCount--;
+        i--; // Process this index again since it now contains the next element
+        removed++;
+      }
+    }
+    
+    if (debugMode && removed > 0) {
+      debugLog("Removed %d stale neighbors, %d active neighbors remain", removed, neighborCount);
+    }
+  }
+  
+  // Rest of existing loop() code...
+}
+```
+
+This implementation:
+1. Runs every 60 seconds to check for stale neighbors
+2. Removes neighbors not seen for 5 minutes (300,000 ms)
+3. Compacts the neighbor array after removal
+4. Updates the neighbor count
+5. Logs the cleanup activity when debug is enabled
+
+You can adjust the timing values based on your specific application needs - shorter for highly dynamic networks or longer for stable networks to reduce overhead.
+
+hsbharath22: ok can you implemet this with time configurable but with default values if not configured
+
+GitHub Copilot: I'll implement the node aging mechanism with configurable timeout parameters and sensible defaults. Let me add this to the ESPNowMesh library:
+
+First, I'll add the necessary parameters to the class header:
+````
+// Add these defines near the top with other configuration constants
+#define MESH_DEFAULT_NEIGHBOR_EXPIRY 300000  // Default neighbor expiry time (5 minutes)
+#define MESH_DEFAULT_CLEANUP_INTERVAL 60000  // Default cleanup interval (1 minute)
+
+// ...existing code...
+
+class ESPNowMesh {
+public:
+  // ...existing code...
+  
+  // New API for configuring node aging
+  void setNeighborExpiry(unsigned long expiryTime);
+  void setNeighborCleanupInterval(unsigned long interval);
+  
+private:
+  // ...existing code...
+  
+  // Node aging parameters
+  unsigned long neighborExpiryTime = MESH_DEFAULT_NEIGHBOR_EXPIRY;
+  unsigned long neighborCleanupInterval = MESH_DEFAULT_CLEANUP_INTERVAL;
+  unsigned long lastNeighborCleanup = 0;
+  
+  // ...existing code...
+};
+````
+
+
+Made changes.
+
+Now I'll implement the node aging functionality in the ESPNowMesh implementation file:
+````
+// Add these setter methods somewhere in the implementation file
+void ESPNowMesh::setNeighborExpiry(unsigned long expiryTime) {
+  neighborExpiryTime = expiryTime;
+  if (debugMode) {
+    debugLog("Neighbor expiry time set to %lu ms", expiryTime);
+  }
+}
+
+void ESPNowMesh::setNeighborCleanupInterval(unsigned long interval) {
+  neighborCleanupInterval = interval;
+  if (debugMode) {
+    debugLog("Neighbor cleanup interval set to %lu ms", interval);
+  }
+}
+````
+
+
+Made changes.
+
+Now I'll add the node aging implementation to the `loop()` method to automatically clean up stale neighbors.
+````
+// Modify the loop method to clean old neighbors periodically
+void ESPNowMesh::loop()
+{
+  // Check for auto-discovery
+  if (discoveryInterval && millis() - lastDiscovery > discoveryInterval)
+  {
+    lastDiscovery = millis();
+    broadcastDiscovery();
+
+    // Print current neighbor status after discovery
+    if (debugMode)
+    {
+      debugLog("Current neighbor count: %d", neighborCount);
+
+      for (uint8_t i = 0; i < neighborCount; i++)
+      {
+        debugLog("  Neighbor %d: %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, RSSI: %d, Last seen: %lu ms ago",
+                 i + 1,
+                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+                 neighbors[i].role.c_str(),
+                 neighbors[i].rssi,
+                 millis() - neighbors[i].lastSeen);
+      }
+    }
+  }
+  
+  // Check for stale neighbors that should be removed
+  unsigned long currentTime = millis();
+  if (currentTime - lastNeighborCleanup > neighborCleanupInterval) {
+    lastNeighborCleanup = currentTime;
+    
+    // Remove neighbors that haven't been seen for longer than expiryTime
+    int removedCount = 0;
+    for (uint8_t i = 0; i < neighborCount; i++) {
+      unsigned long timeSinceLastSeen = currentTime - neighbors[i].lastSeen;
+      
+      // Check if this neighbor has expired
+      if (timeSinceLastSeen > neighborExpiryTime) {
+        if (debugMode) {
+          debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, not seen for %lu ms",
+                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+                 neighbors[i].role.c_str(), timeSinceLastSeen);
+        }
+        
+        // Shift remaining neighbors to compact the array
+        for (uint8_t j = i; j < neighborCount - 1; j++) {
+          memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+        }
+        
+        // Decrement counts and counters
+        neighborCount--;
+        i--; // Process this index again since it now contains the next element
+        removedCount++;
+      }
+    }
+    
+    if (debugMode && removedCount > 0) {
+      debugLog("Removed %d stale neighbors, %d active neighbors remain", removedCount, neighborCount);
+    }
+  }
+
+  // Clean up expired entries in the message cache every 30 seconds
+  static unsigned long lastCacheCleanup = 0;
+  if (millis() - lastCacheCleanup > 30000)
+  {
+    // ...existing code for message cache cleanup...
+  }
+
+  // Check pending acknowledgments
+  for (int i = 0; i < MESH_MAX_PENDING_ACKS; i++)
+  {
+    // ...existing code for checking pending ACKs...
+  }
+}
+````
+
+
+Made changes.
+
+I've successfully implemented the node aging mechanism in your ESPNowMesh library. This feature will automatically remove nodes from the neighbor table when they haven't been seen for a configurable period of time.
+
+Here's what was added:
+
+1. **Configuration Constants**
+   - `MESH_DEFAULT_NEIGHBOR_EXPIRY` (5 minutes/300000ms)
+   - `MESH_DEFAULT_CLEANUP_INTERVAL` (1 minute/60000ms)
+
+2. **New Public API Methods**
+   ```cpp
+   void setNeighborExpiry(unsigned long expiryTime);
+   void setNeighborCleanupInterval(unsigned long interval);
+   ```
+
+3. **Node Aging Logic**
+   - Added code in the `loop()` method that periodically checks for stale neighbors
+   - Neighbors that haven't been seen for longer than the expiry time are removed
+   - The logic preserves the neighbor array integrity by shifting remaining elements
+
+## Using the New Feature
+
+You can now use this feature in your code:
+
+```cpp
+// Basic setup with default values (cleanup every 60s, expire after 5 minutes)
+mesh.begin();
+
+// Or customize the timings
+mesh.setNeighborExpiry(180000);       // Change expiry to 3 minutes
+mesh.setNeighborCleanupInterval(30000); // Check every 30 seconds
+```
+
+With debug mode enabled, you'll see log messages when nodes are removed:
+```
+[MESH] Removed 2 stale neighbors, 3 active neighbors remain
+```
+
+This implementation ensures that your mesh network stays up-to-date with the current network topology, removing nodes that have gone offline or moved out of range. This will improve routing decisions and prevent attempts to send messages through stale paths.
+
+hsbharath22: what other optimization can we do in this library also is there any repeated codes or logic that be wriiten better as reuseable logic?
+
+GitHub Copilot: # Optimization Opportunities in the ESPNowMesh Library
+
+After analyzing your code, I found several optimization opportunities that could improve performance, reduce memory usage, and make the code more maintainable:
+
+## 1. Message Processing Optimization
+
+Your message handling in `_onRecv()` is quite long (200+ lines). This can be refactored into smaller, focused functions:
+
+```cpp
+void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int rssi) {
+  if (!isValidMeshPacket(data, len)) return;
+  
+  MeshPacket msg;
+  memcpy(&msg, data, sizeof(msg));
+  msg.payload[MESH_PAYLOAD_LEN - 1] = '\0';
+  
+  if (isDuplicate(msg.sender, msg.msg_id)) return;
+  addToCache(msg.sender, msg.msg_id);
+  
+  // Handle message based on type
+  if (isAckMessage(msg.payload)) {
+    handleAckMessage(msg.payload, mac);
+    return;
+  }
+  
+  if (isInternalProtocolMessage(msg.payload)) {
+    handleProtocolMessage(msg, mac, rssi);
+    return;
+  }
+  
+  // Deliver to app if for us
+  deliverMessageIfForUs(msg, mac, rssi);
+  
+  // Forward if needed
+  forwardMessageIfNeeded(msg, mac, rssi);
+}
+```
+
+## 2. Peer Management Caching
+
+Cache ESP-NOW peer management results to reduce redundant operations:
+
+```cpp
+// Add to class definition
+struct PeerCacheEntry {
+  uint8_t mac[6];
+  uint8_t channel;
+  bool encrypt;
+  unsigned long timestamp;
+};
+PeerCacheEntry peerCache[MESH_MAX_PEERS];
+uint8_t peerCacheCount = 0;
+
+// Use before calling esp_now functions
+bool ESPNowMesh::isPeerCached(const uint8_t* mac) {
+  for (int i = 0; i < peerCacheCount; i++) {
+    if (memcmp(peerCache[i].mac, mac, 6) == 0) {
+      return true;
+    }
+  }
+  return false;
+}
+```
+
+## 3. String Handling Optimization
+
+Replace `String` class with fixed buffers where appropriate to reduce heap fragmentation:
+
+```cpp
+// Instead of:
+neighbors[i].role = role;
+
+// Consider:
+strlcpy(neighbors[i].role, role, MAX_ROLE_LEN);
+
+// And change Neighbor struct:
+struct Neighbor {
+  uint8_t mac[6];
+  char role[MAX_ROLE_LEN];  // Fixed size instead of String
+  int rssi;
+  unsigned long lastSeen;
+};
+```
+
+## 4. Consolidate Repeated Message Debug Logging
+
+Create a reusable function for your common message logging patterns:
+
+```cpp
+void ESPNowMesh::logMessageAction(const char* action, const uint8_t* dest_mac, 
+                                 const uint8_t* src_mac, const char* payload) {
+  if (!debugMode) return;
+  
+  char payloadPreview[17] = {0};
+  strncpy(payloadPreview, payload, 16);
+  
+  debugLog("ESP-NOW %s: %s to %02X:%02X:%02X:%02X:%02X:%02X, from %02X:%02X:%02X:%02X:%02X:%02X, payload: %.16s%s",
+          action,
+          (memcmp(dest_mac, "\xFF\xFF\xFF\xFF\xFF\xFF", 6) == 0) ? "Broadcast" : "Unicast",
+          dest_mac[0], dest_mac[1], dest_mac[2], dest_mac[3], dest_mac[4], dest_mac[5],
+          src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4], src_mac[5],
+          payloadPreview, strlen(payload) > 16 ? "..." : "");
+}
+```
+
+## 5. MAC Address Utility Functions
+
+Add helper functions for MAC address operations:
+
+```cpp
+void ESPNowMesh::macToString(const uint8_t* mac, char* output) {
+  sprintf(output, "%02X:%02X:%02X:%02X:%02X:%02X", 
+          mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+}
+
+bool ESPNowMesh::macEqual(const uint8_t* mac1, const uint8_t* mac2) {
+  return memcmp(mac1, mac2, 6) == 0;
+}
+```
+
+## 6. Channel Quality Assessment
+
+Add periodic channel quality assessment to avoid interference:
+
+```cpp
+void ESPNowMesh::assessChannelQuality() {
+  // Skip if disabled
+  if (!channelAssessmentEnabled) return;
+  
+  static unsigned long lastAssessment = 0;
+  if (millis() - lastAssessment < channelAssessmentInterval) return;
+  
+  // Simple scan for networks on current channel
+  int networks = WiFi.scanNetworks(false, false, false, 300, wifiChannel);
+  
+  if (networks > channelCongestionThreshold) {
+    debugLog("Channel %d congested with %d networks, consider changing channels", 
+             wifiChannel, networks);
+  }
+  
+  lastAssessment = millis();
+}
+```
+
+## 7. Optimize Loop Function
+
+Your `loop()` function has multiple independent operations. Consider implementing a more efficient timing approach:
+
+```cpp
+void ESPNowMesh::loop() {
+  unsigned long currentTime = millis();
+  
+  // Use a state machine approach for periodic tasks
+  static enum {
+    CHECK_DISCOVERY,
+    CHECK_NEIGHBORS,
+    CHECK_CACHE,
+    CHECK_ACKS,
+    ASSESS_CHANNEL
+  } nextCheck = CHECK_DISCOVERY;
+  
+  switch (nextCheck) {
+    case CHECK_DISCOVERY:
+      handleDiscovery(currentTime);
+      nextCheck = CHECK_NEIGHBORS;
+      break;
+    case CHECK_NEIGHBORS:
+      cleanupStaleNeighbors(currentTime);
+      nextCheck = CHECK_CACHE;
+      break;
+    // ... other cases
+  }
+  
+  // Always process pending ACKs as they're time-sensitive
+  checkPendingAcks(currentTime);
+}
+```
+
+These optimizations would make your ESPNowMesh library more efficient, maintainable, and robust while reducing memory usage and improving performance.
+
+Similar code found with 1 license type

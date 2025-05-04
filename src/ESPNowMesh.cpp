@@ -356,132 +356,165 @@ void ESPNowMesh::setNeighborCleanupInterval(unsigned long interval) {
   }
 }
 
-// Modify the loop method to clean old neighbors periodically
-void ESPNowMesh::loop()
-{
-  // Check for auto-discovery
-  if (discoveryInterval && millis() - lastDiscovery > discoveryInterval)
-  {
-    lastDiscovery = millis();
+// Implement the optimized loop method using the state machine approach
+void ESPNowMesh::loop() {
+  unsigned long currentTime = millis();
+  
+  // Run one maintenance task per loop iteration using a state machine
+  // This spreads processing across multiple loop calls for better performance
+  if (currentTime >= nextTaskCheck) {
+    switch (loopTaskIndex) {
+      case 0: // Auto-discovery check
+        checkForDiscovery(currentTime);
+        break;
+        
+      case 1: // Neighbor cleanup
+        cleanupStaleNeighbors(currentTime);
+        break;
+        
+      case 2: // Message cache cleanup
+        cleanupMessageCache(currentTime);
+        break;
+    }
+    
+    // Move to next task for next loop iteration
+    loopTaskIndex = (loopTaskIndex + 1) % 3; // 3 tasks total
+    nextTaskCheck = currentTime + 10; // Small delay to next task
+  }
+  
+  // Always process pending ACKs on every loop as they're time-critical
+  checkPendingAcks();
+}
+
+// Helper method to check for and handle auto-discovery
+void ESPNowMesh::checkForDiscovery(unsigned long currentTime) {
+  if (discoveryInterval == 0) return; // Discovery disabled
+  
+  if (currentTime - lastDiscovery > discoveryInterval) {
+    lastDiscovery = currentTime;
     broadcastDiscovery();
+    
+    // Log neighbor status if in debug mode
+    if (debugMode) {
+      logNeighborStatus();
+    }
+  }
+}
 
-    // Print current neighbor status after discovery
-    if (debugMode)
-    {
-      debugLog("Current neighbor count: %d", neighborCount);
+// Helper method to log neighbor information
+void ESPNowMesh::logNeighborStatus() {
+  debugLog("Current neighbor count: %d", neighborCount);
+  
+  for (uint8_t i = 0; i < neighborCount; i++) {
+    debugLog("  Neighbor %d: %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, RSSI: %d, Last seen: %lu ms ago",
+             i + 1,
+             neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+             neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+             neighbors[i].role.c_str(),
+             neighbors[i].rssi,
+             millis() - neighbors[i].lastSeen);
+  }
+}
 
-      for (uint8_t i = 0; i < neighborCount; i++)
-      {
-        debugLog("  Neighbor %d: %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, RSSI: %d, Last seen: %lu ms ago",
-                 i + 1,
-                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
-                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
-                 neighbors[i].role.c_str(),
-                 neighbors[i].rssi,
-                 millis() - neighbors[i].lastSeen);
+// Helper method to clean up stale neighbors
+void ESPNowMesh::cleanupStaleNeighbors(unsigned long currentTime) {
+  if (currentTime - lastNeighborCleanup <= neighborCleanupInterval) return;
+  
+  lastNeighborCleanup = currentTime;
+  
+  // Remove neighbors that haven't been seen for longer than expiryTime
+  int removedCount = 0;
+  for (uint8_t i = 0; i < neighborCount; i++) {
+    unsigned long timeSinceLastSeen = currentTime - neighbors[i].lastSeen;
+    
+    // Check if this neighbor has expired
+    if (timeSinceLastSeen > neighborExpiryTime) {
+      if (debugMode) {
+        debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, not seen for %lu ms",
+               neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+               neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+               neighbors[i].role.c_str(), timeSinceLastSeen);
       }
+      
+      // Shift remaining neighbors to compact the array
+      for (uint8_t j = i; j < neighborCount - 1; j++) {
+        memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+      }
+      
+      // Decrement counts and counters
+      neighborCount--;
+      i--; // Process this index again since it now contains the next element
+      removedCount++;
     }
   }
   
-  // Check for stale neighbors that should be removed
+  if (debugMode && removedCount > 0) {
+    debugLog("Removed %d stale neighbors, %d active neighbors remain", removedCount, neighborCount);
+  }
+}
+
+// Helper method to clean up the message deduplication cache
+void ESPNowMesh::cleanupMessageCache(unsigned long currentTime) {
+  if (currentTime - lastCacheCleanup <= 30000) return; // Run every 30 seconds
+  
+  lastCacheCleanup = currentTime;
+
+  // Simply clear very old entries to prevent false positives
+  const unsigned long CACHE_EXPIRY_MS = 60000; // 1 minute
+
+  int cleanedEntries = 0;
+  for (int i = 0; i < MESH_CACHE_SIZE; i++) {
+    if (cache[i].msg_id != 0 &&
+        ((currentTime > cache[i].timestamp &&
+          currentTime - cache[i].timestamp > CACHE_EXPIRY_MS) ||
+         (currentTime < cache[i].timestamp &&
+          currentTime + (0xFFFFFFFF - cache[i].timestamp) > CACHE_EXPIRY_MS))) {
+      // Entry is too old, clear it
+      cache[i].msg_id = 0;
+      memset(cache[i].sender, 0, 6);
+      cache[i].timestamp = 0;
+      cleanedEntries++;
+    }
+  }
+
+  if (debugMode && cleanedEntries > 0) {
+    debugLog("Cleaned %d expired entries from message cache", cleanedEntries);
+  }
+}
+
+// Add the missing checkPendingAcks method
+void ESPNowMesh::checkPendingAcks() {
   unsigned long currentTime = millis();
-  if (currentTime - lastNeighborCleanup > neighborCleanupInterval) {
-    lastNeighborCleanup = currentTime;
+  
+  // Check each pending ACK slot
+  for (int i = 0; i < MESH_MAX_PENDING_ACKS; i++) {
+    // Skip inactive slots
+    if (!pendingAcks[i].active) continue;
     
-    // Remove neighbors that haven't been seen for longer than expiryTime
-    int removedCount = 0;
-    for (uint8_t i = 0; i < neighborCount; i++) {
-      unsigned long timeSinceLastSeen = currentTime - neighbors[i].lastSeen;
-      
-      // Check if this neighbor has expired
-      if (timeSinceLastSeen > neighborExpiryTime) {
+    // Check if this ACK has timed out
+    unsigned long waitTime = currentTime - pendingAcks[i].timestamp;
+    if (waitTime > ackTimeout) {
+      // Check if we have retries left
+      if (pendingAcks[i].attempts < ackRetries) {
+        // Still have retries left, resend the message
+        resendPendingMessage(i);
+      } else {
+        // No more retries, consider the message as failed
         if (debugMode) {
-          debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, not seen for %lu ms",
-                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
-                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
-                 neighbors[i].role.c_str(), timeSinceLastSeen);
+          debugLog("Message delivery failed after %d attempts: ID 0x%08X to %02X:%02X:%02X:%02X:%02X:%02X",
+                   pendingAcks[i].attempts,
+                   pendingAcks[i].msg_id,
+                   pendingAcks[i].dest_mac[0], pendingAcks[i].dest_mac[1], pendingAcks[i].dest_mac[2],
+                   pendingAcks[i].dest_mac[3], pendingAcks[i].dest_mac[4], pendingAcks[i].dest_mac[5]);
         }
         
-        // Shift remaining neighbors to compact the array
-        for (uint8_t j = i; j < neighborCount - 1; j++) {
-          memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+        // Call the failure callback if registered
+        if (onFailureCallback) {
+          onFailureCallback(pendingAcks[i].msg_id, pendingAcks[i].dest_mac);
         }
         
-        // Decrement counts and counters
-        neighborCount--;
-        i--; // Process this index again since it now contains the next element
-        removedCount++;
-      }
-    }
-    
-    if (debugMode && removedCount > 0) {
-      debugLog("Removed %d stale neighbors, %d active neighbors remain", removedCount, neighborCount);
-    }
-  }
-
-  // Clean up expired entries in the message cache every 30 seconds
-  static unsigned long lastCacheCleanup = 0;
-  if (millis() - lastCacheCleanup > 30000)
-  {
-    lastCacheCleanup = millis();
-
-    // Simply clear very old entries to prevent false positives
-    unsigned long currentTime = millis();
-    const unsigned long CACHE_EXPIRY_MS = 60000; // 1 minute
-
-    int cleanedEntries = 0;
-    for (int i = 0; i < MESH_CACHE_SIZE; i++)
-    {
-      if (cache[i].msg_id != 0 &&
-          ((currentTime > cache[i].timestamp &&
-            currentTime - cache[i].timestamp > CACHE_EXPIRY_MS) ||
-           (currentTime < cache[i].timestamp &&
-            currentTime + (0xFFFFFFFF - cache[i].timestamp) > CACHE_EXPIRY_MS)))
-      {
-        // Entry is too old, clear it
-        cache[i].msg_id = 0;
-        memset(cache[i].sender, 0, 6);
-        cache[i].timestamp = 0;
-        cleanedEntries++;
-      }
-    }
-
-    if (debugMode && cleanedEntries > 0)
-    {
-      debugLog("Cleaned %d expired entries from message cache", cleanedEntries);
-    }
-  }
-
-  // Check pending acknowledgments
-  for (int i = 0; i < MESH_MAX_PENDING_ACKS; i++)
-  {
-    if (isPendingAckActive(i))
-    {
-      unsigned long elapsed = millis() - pendingAcks[i].timestamp;
-      if (elapsed > ackTimeout)
-      {
-        if (pendingAcks[i].attempts >= ackRetries)
-        {
-          if (debugMode)
-          {
-            debugLog("Message ID 0x%08X failed after %u attempts",
-                     pendingAcks[i].msg_id, pendingAcks[i].attempts);
-          }
-
-          // Call failure callback if registered
-          if (onFailureCallback)
-          {
-            onFailureCallback(pendingAcks[i].msg_id, pendingAcks[i].dest_mac);
-          }
-
-          // Clear this pending ACK
-          clearPendingAck(i);
-        }
-        else
-        {
-          // Resend the message
-          resendPendingMessage(i);
-        }
+        // Clear this pending ACK slot
+        clearPendingAck(i);
       }
     }
   }

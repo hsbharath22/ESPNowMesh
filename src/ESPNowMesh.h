@@ -155,6 +155,17 @@ private:
   unsigned long neighborExpiryTime = MESH_DEFAULT_NEIGHBOR_EXPIRY;
   unsigned long neighborCleanupInterval = MESH_DEFAULT_CLEANUP_INTERVAL;
   unsigned long lastNeighborCleanup = 0;
+
+  // Variables for optimized loop processing
+  unsigned long lastCacheCleanup = 0;
+  uint8_t loopTaskIndex = 0;
+  unsigned long nextTaskCheck = 0;
+  
+  // Helper methods for loop tasks
+  void cleanupMessageCache(unsigned long currentTime);
+  void cleanupStaleNeighbors(unsigned long currentTime);
+  void checkForDiscovery(unsigned long currentTime);
+  void logNeighborStatus();
 };
 
 #endif
