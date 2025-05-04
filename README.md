@@ -1,4 +1,4 @@
-# ESPNowMesh Library
+# ESPNowMesh Library v1.1.0
 
 The **ESPNowMesh** library provides a lightweight, Arduino-compatible mesh networking layer built on top of ESP-NOW for ESP32 boards.
 
@@ -136,7 +136,7 @@ MIT License
 
 ### End-to-End Acknowledgments
 - `void sendReliably(const char* msg, const uint8_t* target_mac, uint8_t ttl = MESH_TTL_DEFAULT);`  
-  Sends a message with end-to-end acknowledgment and automatic retries.
+  Sends a message with end-to-end acknowledgment and automatic retries for guaranteed delivery.
 
 - `void setAckTimeout(uint32_t timeout_ms);`  
   Sets how long (ms) to wait for an ACK before retrying.

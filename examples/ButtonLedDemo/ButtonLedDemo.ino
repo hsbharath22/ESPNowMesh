@@ -1,35 +1,28 @@
 /* ButtonLedDemo - ESPNowMesh Example
  * 
- * This example demonstrates using ESPNowMesh to toggle an LED on one ESP32 
- * by pressing a button on another ESP32.
+ * This example demonstrates using ESPNowMesh to toggle LEDs between ESP32 devices.
+ * Both devices have a button and LED, so you can press the button on either device
+ * to toggle the LED on the other device.
  * 
  * Instructions:
  * 1. Upload this sketch to two ESP32 boards
- * 2. Connect a button to pin 37 (with pull-up) on one board
- * 3. Connect an LED to pin 10 on the other board
+ * 2. Connect a button to pin 37 (with pull-up) on both boards
+ * 3. Connect an LED to pin 10 on both boards
  * 
- * On each board, uncomment either BUTTON_NODE or LED_NODE define
- * to configure the board's role.
+ * The same code runs on both devices - no configuration changes needed!
  */
 
 #include <ESPNowMesh.h>
-#include <esp_wifi.h>
 
 ESPNowMesh mesh;
 
-// Device Type Configuration - Uncomment ONE of these lines
-#define BUTTON_NODE  // For the button node
-// #define LED_NODE  // For the LED node
+const int BUTTON_PIN = 37;  // Button pin (with internal pull-up)
+const int LED_PIN = 10;     // LED pin
 
-#ifdef BUTTON_NODE
-  const int BUTTON_PIN = 37; // Button pin (with internal pull-up)
-  bool lastButtonState = HIGH;
-#endif
+bool ledState = LOW;        // Current LED state
+bool lastButtonState = HIGH; // Last button state (pulled up, so HIGH when not pressed)
 
-#ifdef LED_NODE
-  const int LED_PIN = 10;    // LED pin
-  bool ledState = LOW;
-#endif
+uint8_t myMac[6];           // This device's MAC address
 
 // Function to print MAC addresses in a readable format
 void printMac(const uint8_t* mac) {
@@ -41,191 +34,75 @@ void printMac(const uint8_t* mac) {
 
 // Callback for mesh message reception
 void onMeshMessage(const char* msg, const uint8_t* sender) {
-  Serial.print("Received message from: ");
+  Serial.print("Message from: ");
   printMac(sender);
-  Serial.print(" | Message: ");
+  Serial.print(" | Content: ");
   Serial.println(msg);
-  
-  #ifdef LED_NODE
-    // Check if message is the toggle command
-    if (strcmp(msg, "TOGGLE_LED") == 0) {
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState);
-      Serial.print("LED toggled to: ");
-      Serial.println(ledState ? "ON" : "OFF");
-      
-      // Send acknowledgment
-      Serial.print("Sending ACK to: ");
-      printMac(sender);
-      Serial.println();
-      
-      mesh.send("ACK_TOGGLE", sender, 4);
-    }
-  #endif
-  
-  #ifdef BUTTON_NODE
-    // Check for acknowledgment
-    if (strcmp(msg, "ACK_TOGGLE") == 0) {
-      Serial.println("LED toggle confirmed!");
-    }
-  #endif
-}
 
-// Function to print current neighbors
-void printNeighbors() {
-  uint8_t count;
-  auto* neighbors = mesh.getNeighbors(count);
-  
-  Serial.print("Current neighbors: ");
-  Serial.println(count);
-  
-  for (int i = 0; i < count; i++) {
-    Serial.print("  Neighbor ");
-    Serial.print(i + 1);
-    Serial.print(": ");
-    printMac(neighbors[i].mac);
-    Serial.print(", Role: ");
-    Serial.print(neighbors[i].role);
-    Serial.print(", RSSI: ");
-    Serial.print(neighbors[i].rssi);
-    Serial.print(", Last seen: ");
-    Serial.print((millis() - neighbors[i].lastSeen) / 1000);
-    Serial.println(" seconds ago");
+  // Check if this is a command to toggle the LED
+  if (strcmp(msg, "TOGGLE_LED") == 0) {
+    // Toggle LED state
+    ledState = !ledState;
+    digitalWrite(LED_PIN, ledState);
+    Serial.print("LED toggled to: ");
+    Serial.println(ledState ? "ON" : "OFF");
+    
+    // Send acknowledgment back to sender
+    mesh.send("ACK_TOGGLE", sender);
+  }
+  // Check if this is an acknowledgment of a toggle command
+  else if (strcmp(msg, "ACK_TOGGLE") == 0) {
+    Serial.println("Remote LED toggle confirmed!");
   }
 }
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); // Allow time for serial to connect
+  delay(1000);
   
   Serial.println("\n=== ESPNowMesh Button/LED Demo ===");
   
-  // Initialize WiFi properly
+  // Get this device's MAC address
   WiFi.mode(WIFI_STA);
-  delay(100); // Short delay for mode to apply
+  memcpy(myMac, WiFi.macAddress().c_str(), 6);
   
-  // Print MAC address
-  Serial.print("Initial MAC address: ");
-  Serial.println(WiFi.macAddress());
+  Serial.print("My MAC address: ");
+  printMac(myMac);
+  Serial.println();
   
-  // Clean WiFi state without trying to set channel explicitly
-  WiFi.disconnect();
-  delay(100);
+  // Setup hardware
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, ledState);
   
-  #ifdef BUTTON_NODE
-    Serial.println("Configured as BUTTON NODE");
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
-    mesh.setRole("button");
-  #endif
-  
-  #ifdef LED_NODE
-    Serial.println("Configured as LED NODE");
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, ledState);
-    mesh.setRole("led");
-  #endif
-  
-  // Initialize mesh network with debugging enabled
-  Serial.println("Initializing mesh network...");
-  mesh.enableDebug(true);
-  mesh.begin();  // Uses our improved version that doesn't force channel
+  // Initialize mesh network
+  mesh.begin();
   mesh.onReceive(onMeshMessage);
-  mesh.enableAutoDiscovery(5000);  // Auto-discover every 5 seconds
+  mesh.setRole("button-led-node");
   
   // Enable reliability features
-  mesh.setUnicastForwarding(true); // Use smart unicast routing
-  mesh.setRetryFallback(true);     // Retry if send fails
-  mesh.setFallbackToBroadcast(true); // Fallback to broadcast if retries fail
+  mesh.setRetryFallback(true);
+  mesh.enableAutoDiscovery(35000);  // Discover other nodes every 5 seconds
   
-  // Initial discovery broadcasts with delays
-  Serial.println("Sending initial discovery broadcasts");
-  delay(500); // Give mesh initialization time
-  
-  // Send three discovery broadcasts
-  for (int i = 0; i < 3; i++) {
-    Serial.printf("Initial discovery broadcast %d/3\n", i+1);
-    mesh.broadcastDiscovery();
-    delay(250);
-  }
-  
-  // Verify final configuration
-  Serial.print("Final MAC address: ");
-  Serial.println(WiFi.macAddress());
-  
-  Serial.printf("WiFi Status: %d\n", WiFi.status());
-  Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
-  
-  Serial.println("Setup complete - waiting for mesh communications");
-  Serial.println("-------------------------------------------");
+  Serial.println("Setup complete - press button to toggle LEDs on other nodes");
 }
 
 void loop() {
   // Process mesh network events
   mesh.loop();
   
-  // Periodic actions
-  static unsigned long lastNeighborPrint = 0;
-  static unsigned long lastDiagnostics = 0;
-  static unsigned long messagesSent = 0;
+  // Read button state (pulled up, so LOW when pressed)
+  bool currentButtonState = digitalRead(BUTTON_PIN);
   
-  // Periodically print neighbor info & diagnostics 
-  if (millis() - lastNeighborPrint > 10000) {  // Every 10 seconds
-    lastNeighborPrint = millis();
-    printNeighbors();
-    
-    // Send a test message every 10 seconds from button node
-    #ifdef BUTTON_NODE
-      Serial.println("Sending periodic test message");
-      mesh.send("TEST_MESSAGE", nullptr, 4);
-      messagesSent++;
-    #endif
+  // Check for button press (transition from HIGH to LOW)
+  if (currentButtonState == LOW && lastButtonState == HIGH) {
+    Serial.println("Button pressed - sending toggle command to all nodes");
+    mesh.send("TOGGLE_LED");  // Broadcast to all nodes
+    delay(50);  // Simple debounce
   }
   
-  // Show diagnostics every 8 seconds
-  if (millis() - lastDiagnostics > 8000) {
-    lastDiagnostics = millis();
-    
-    Serial.println("\n--- DIAGNOSTIC INFO ---");
-    Serial.print("Current MAC: ");
-    Serial.println(WiFi.macAddress());
-    
-    Serial.printf("WiFi Status: %d", WiFi.status());
-    switch (WiFi.status()) {
-      case WL_CONNECTED: Serial.println(" (CONNECTED)"); break;
-      case WL_DISCONNECTED: Serial.println(" (DISCONNECTED)"); break;
-      case WL_IDLE_STATUS: Serial.println(" (IDLE)"); break;
-      default: Serial.println();
-    }
-    
-    Serial.printf("RSSI: %d dBm\n", WiFi.RSSI());
-    #ifdef BUTTON_NODE
-    Serial.printf("Messages sent: %lu\n", messagesSent);
-    #endif
-    Serial.println("----------------------");
-  }
+  // Update last button state
+  lastButtonState = currentButtonState;
   
-  #ifdef BUTTON_NODE
-    // Read button state (pulled up, so LOW when pressed)
-    bool currentButtonState = digitalRead(BUTTON_PIN);
-    
-    // Check for button press (transition from HIGH to LOW)
-    if (currentButtonState == LOW && lastButtonState == HIGH) {
-      Serial.println("\nButton pressed - sending toggle command");
-      
-      // Send toggle message multiple times to increase reliability
-      for (int i = 0; i < 3; i++) {
-        mesh.send("TOGGLE_LED", nullptr, 4);
-        messagesSent++;
-        delay(20);  // Small delay between sends
-      }
-      
-      delay(50);  // Simple debounce
-    }
-    
-    // Update last button state
-    lastButtonState = currentButtonState;
-  #endif
-  
-  // Small delay
-  delay(50);
+  delay(10); // Small delay for stability
 }

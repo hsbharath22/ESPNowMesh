@@ -85,7 +85,7 @@ private:
   bool retryFallback = false;
   bool fallbackToBroadcast = true;
   uint8_t maxRetries = 2;
-  bool useUnicast = false;
+  bool useUnicast = true;  // Changed from false to true: enable unicast forwarding by default
   bool debugMode = false;
   String selfRole = "unknown";
   int rssiThreshold;
@@ -132,12 +132,18 @@ private:
   bool isInPath(const uint8_t* mac, const MeshPacket& msg);
   void debugLog(const char* fmt, ...);
   
+  // New efficient peer management method
+  bool managePeer(const uint8_t* mac, uint8_t channel = 0, bool encrypt = false);
+  
   // Helpers for end-to-end acknowledgment
   int findFreePendingSlot();
   void checkPendingAcks();
   void resendPendingMessage(int index);
   void clearPendingAck(int index);
   bool isPendingAckActive(int index);
+
+  // Helper method for finding the best route to a target
+  uint8_t* findBestRoute(const uint8_t* targetMac, int& bestRssi);
 };
 
 #endif

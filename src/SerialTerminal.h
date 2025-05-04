@@ -2,8 +2,8 @@
  * SerialTerminal.h - Serial Command Interface for ESPNowMesh
  * 
  * This class provides a consistent interface for processing serial commands
- * in ESPNowMesh applications. It allows for standard and custom commands,
- * making it easy to control mesh network operations from the serial monitor.
+ * in ESPNowMesh applications. It offers standard built-in commands
+ * for controlling mesh network operations from the serial monitor.
  */
 
 #ifndef SERIAL_TERMINAL_H
@@ -12,14 +12,8 @@
 #include <Arduino.h>
 #include "ESPNowMesh.h"
 
-// Maximum number of custom commands that can be registered
-#define MAX_CUSTOM_COMMANDS 10
-
 class SerialTerminal {
 public:
-    // Command handler function type - returns true if command was handled
-    typedef bool (*CommandHandler)(const String& args, ESPNowMesh& mesh);
-
     // Constructor
     SerialTerminal(ESPNowMesh& meshInstance, Stream& serial = Serial);
     
@@ -32,21 +26,11 @@ public:
     void enablePrompt(bool enable);
     void setPrompt(const String& prompt);
     
-    // Custom commands
-    bool addCommand(const String& command, const String& helpText, CommandHandler handler);
-    
     // Print help and status information
     void printHelp();
     void printStatus();
     
 private:
-    struct CustomCommand {
-        String command;
-        String helpText;
-        CommandHandler handler;
-        bool active;
-    };
-    
     ESPNowMesh& mesh;
     Stream& serial;
     char commandPrefix = '/';
@@ -54,10 +38,6 @@ private:
     bool promptEnabled = true;
     String prompt = "> ";
     uint8_t defaultTTL = MESH_TTL_DEFAULT;
-    
-    // Custom command storage
-    CustomCommand customCommands[MAX_CUSTOM_COMMANDS];
-    uint8_t customCommandCount = 0;
     
     // Command buffer
     String commandBuffer;

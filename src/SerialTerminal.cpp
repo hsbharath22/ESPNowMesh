@@ -3,11 +3,7 @@
 // Constructor
 SerialTerminal::SerialTerminal(ESPNowMesh& meshInstance, Stream& serialPort)
     : mesh(meshInstance), serial(serialPort) {
-    
-    // Initialize custom commands array
-    for (int i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
-        customCommands[i].active = false;
-    }
+    // No initialization needed now that custom commands are removed
 }
 
 // Process serial input
@@ -73,21 +69,6 @@ void SerialTerminal::enablePrompt(bool enable) {
 // Set custom prompt string
 void SerialTerminal::setPrompt(const String& newPrompt) {
     prompt = newPrompt;
-}
-
-// Add a custom command
-bool SerialTerminal::addCommand(const String& command, const String& helpText, CommandHandler handler) {
-    if (customCommandCount >= MAX_CUSTOM_COMMANDS) {
-        return false;
-    }
-    
-    customCommands[customCommandCount].command = command;
-    customCommands[customCommandCount].helpText = helpText;
-    customCommands[customCommandCount].handler = handler;
-    customCommands[customCommandCount].active = true;
-    customCommandCount++;
-    
-    return true;
 }
 
 // Print MAC address in readable format
@@ -185,19 +166,8 @@ void SerialTerminal::handleCommand(String cmd) {
         printHelp();
     }
     else {
-        // Check custom commands
-        bool foundCustom = false;
-        for (int i = 0; i < customCommandCount; i++) {
-            if (customCommands[i].active && customCommands[i].command.equalsIgnoreCase(command)) {
-                foundCustom = customCommands[i].handler(args, mesh);
-                break;
-            }
-        }
-        
-        if (!foundCustom) {
-            serial.println("Unknown command. Type " + String(commandPrefix) + "help or " + 
-                          String(commandPrefix) + "? for available commands.");
-        }
+        serial.println("Unknown command. Type " + String(commandPrefix) + "help or " + 
+                      String(commandPrefix) + "? for available commands.");
     }
 }
 
@@ -370,17 +340,6 @@ void SerialTerminal::printHelp() {
     serial.println("  " + String(commandPrefix) + "status - Show current mesh status");
     serial.println("  " + String(commandPrefix) + "ping - Send ping to all nodes");
     serial.println("  " + String(commandPrefix) + "help, " + String(commandPrefix) + "? - Show this help message");
-    
-    // Print custom commands if any
-    if (customCommandCount > 0) {
-        serial.println("\nCustom commands:");
-        for (int i = 0; i < customCommandCount; i++) {
-            if (customCommands[i].active) {
-                serial.print("  " + String(commandPrefix) + customCommands[i].command + " - ");
-                serial.println(customCommands[i].helpText);
-            }
-        }
-    }
 }
 
 // Print status information

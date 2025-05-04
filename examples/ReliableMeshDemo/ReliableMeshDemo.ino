@@ -36,6 +36,13 @@ String currentRole = "node";  // Track our current role locally
 
 // Handler for incoming mesh messages
 void onMeshMessage(const char* msg, const uint8_t* sender) {
+  // Filter out internal messages that should be handled by the library
+  if (strncmp(msg, "DISCOVERY_REQ", 13) == 0 || 
+      strncmp(msg, "DISCOVERY_RSP", 13) == 0) {
+    // These are internal library messages, don't process them in the user callback
+    return;
+  }
+  
   messagesReceived++;
   
   // Print a notification about the message
@@ -92,89 +99,6 @@ void onMeshMessage(const char* msg, const uint8_t* sender) {
   Serial.print("> ");
 }
 
-// Custom command handler for mesh statistics
-bool cmdMeshStats(const String& args, ESPNowMesh& mesh) {
-  Serial.println("\n=== MESH STATISTICS ===");
-  Serial.printf("Messages sent: %lu\n", messagesSent);
-  Serial.printf("Messages received: %lu\n", messagesReceived);
-  Serial.printf("Acknowledgments received: %lu\n", messageAcksReceived);
-  Serial.printf("Delivery ratio: %s\n", 
-    (messagesSent > 0) ? String(100.0 * messageAcksReceived / messagesSent, 1) + "%" : "N/A");
-  Serial.println("=======================");
-  return true;
-}
-
-// Custom command handler for sending a structured test message
-bool cmdTestMessage(const String& args, ESPNowMesh& mesh) {
-  // Create a JSON-like test message with timestamp and sequence number
-  static uint16_t sequence = 0;
-  char testMsg[64];
-  
-  snprintf(testMsg, sizeof(testMsg), "{\"seq\":%u,\"time\":%lu,\"role\":\"%s\"}", 
-           sequence++, millis(), currentRole.c_str());
-  
-  Serial.printf("Sending test message: %s\n", testMsg);
-  mesh.send(testMsg, nullptr, 3); // Send with TTL=3
-  messagesSent++;
-  
-  return true;
-}
-
-// Add a custom command handler for sending reliable messages
-bool cmdSendReliable(const String& args, ESPNowMesh& mesh) {
-  // Find the first space to separate MAC and message
-  int spacePos = args.indexOf(' ');
-  if (spacePos == -1) {
-    Serial.println("Usage: /sr <MAC> <message>");
-    return false;
-  }
-  
-  // Extract MAC address
-  String macStr = args.substring(0, spacePos);
-  macStr.replace(":", ""); // Remove colons if present
-  
-  // Validate MAC format
-  if (macStr.length() != 12) {
-    Serial.println("Invalid MAC format. Must be 12 hex chars with or without colons.");
-    return false;
-  }
-  
-  // Convert MAC string to bytes
-  uint8_t targetMac[6];
-  for (int i = 0; i < 6; i++) {
-    char hex[3] = { macStr.charAt(i*2), macStr.charAt(i*2+1), 0 };
-    targetMac[i] = strtoul(hex, nullptr, 16);
-  }
-  
-  // Extract message content
-  String message = args.substring(spacePos + 1);
-  
-  // Print info about what we're sending
-  Serial.print("Sending reliable message to MAC: ");
-  for (int i = 0; i < 6; i++) {
-    Serial.printf("%02X", targetMac[i]);
-    if (i < 5) Serial.print(":");
-  }
-  Serial.println();
-  
-  // Generate a message ID for tracking
-  uint32_t msgId = mesh.generateMsgId();
-  
-  // Format the reliable message with an embedded ID that can be extracted on receipt
-  char reliableMsg[64];
-  snprintf(reliableMsg, sizeof(reliableMsg), "RELIABLE_MSG|%u|%s", 
-           msgId, message.c_str());
-  
-  // Send using the reliable API
-  mesh.sendReliably(reliableMsg, targetMac, 4);
-  messagesSent++;
-  
-  Serial.printf("Reliable message sent: %s\n", message.c_str());
-  Serial.println("Waiting for acknowledgment...");
-  
-  return true;
-}
-
 // Success callback for reliable messages
 void onMessageDelivered(uint32_t msg_id, const uint8_t* dest_mac) {
   Serial.print("\nMessage delivered successfully! ID: 0x");
@@ -223,7 +147,7 @@ void setup() {
   mesh.onReceive(onMeshMessage);
   
   // Enable advanced features
-  mesh.enableAutoDiscovery(10000);  // Auto-discover every 10 seconds
+  mesh.enableAutoDiscovery(600000);  // Auto-discover every 10 seconds
   mesh.setUnicastForwarding(true);  // Enable smart routing
   mesh.setRetryFallback(true);      // Enable retry mechanism
   mesh.setFallbackToBroadcast(true);// Fallback to broadcast if retries fail
@@ -233,11 +157,6 @@ void setup() {
   mesh.setAckRetries(3);            // Retry 3 times before giving up
   mesh.onSendSuccess(onMessageDelivered);  // Register delivery callback
   mesh.onSendFailure(onMessageFailed);     // Register failure callback
-  
-  // Register our custom commands
-  terminal.addCommand("stats", "Show mesh network statistics", cmdMeshStats);
-  terminal.addCommand("test", "Send a structured test message", cmdTestMessage);
-  terminal.addCommand("sr", "Send reliable message with ACK: /sr <MAC> <message>", cmdSendReliable);
   
   // Initial discovery
   Serial.println("Sending initial discovery broadcasts...");
