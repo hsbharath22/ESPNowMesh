@@ -341,7 +341,22 @@ ESPNowMesh::Neighbor *ESPNowMesh::getNeighbors(uint8_t &count)
   return neighbors;
 }
 
-// Modify the loop method to clean old cache entries periodically
+// Add these setter methods somewhere in the implementation file
+void ESPNowMesh::setNeighborExpiry(unsigned long expiryTime) {
+  neighborExpiryTime = expiryTime;
+  if (debugMode) {
+    debugLog("Neighbor expiry time set to %lu ms", expiryTime);
+  }
+}
+
+void ESPNowMesh::setNeighborCleanupInterval(unsigned long interval) {
+  neighborCleanupInterval = interval;
+  if (debugMode) {
+    debugLog("Neighbor cleanup interval set to %lu ms", interval);
+  }
+}
+
+// Modify the loop method to clean old neighbors periodically
 void ESPNowMesh::loop()
 {
   // Check for auto-discovery
@@ -365,6 +380,42 @@ void ESPNowMesh::loop()
                  neighbors[i].rssi,
                  millis() - neighbors[i].lastSeen);
       }
+    }
+  }
+  
+  // Check for stale neighbors that should be removed
+  unsigned long currentTime = millis();
+  if (currentTime - lastNeighborCleanup > neighborCleanupInterval) {
+    lastNeighborCleanup = currentTime;
+    
+    // Remove neighbors that haven't been seen for longer than expiryTime
+    int removedCount = 0;
+    for (uint8_t i = 0; i < neighborCount; i++) {
+      unsigned long timeSinceLastSeen = currentTime - neighbors[i].lastSeen;
+      
+      // Check if this neighbor has expired
+      if (timeSinceLastSeen > neighborExpiryTime) {
+        if (debugMode) {
+          debugLog("Removing stale neighbor %02X:%02X:%02X:%02X:%02X:%02X, Role: %s, not seen for %lu ms",
+                 neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
+                 neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5],
+                 neighbors[i].role.c_str(), timeSinceLastSeen);
+        }
+        
+        // Shift remaining neighbors to compact the array
+        for (uint8_t j = i; j < neighborCount - 1; j++) {
+          memcpy(&neighbors[j], &neighbors[j+1], sizeof(Neighbor));
+        }
+        
+        // Decrement counts and counters
+        neighborCount--;
+        i--; // Process this index again since it now contains the next element
+        removedCount++;
+      }
+    }
+    
+    if (debugMode && removedCount > 0) {
+      debugLog("Removed %d stale neighbors, %d active neighbors remain", removedCount, neighborCount);
     }
   }
 
@@ -1229,6 +1280,11 @@ void ESPNowMesh::_handleAck(uint32_t ack_id, const uint8_t *sender)
 bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt)
 {
   if (!mac) return false;
+  
+  // Skip peer management for broadcast addresses
+  if (isBroadcast(mac)) {
+    return true;  // Return success but do nothing
+  }
 
   // Use the instance channel if not specified
   if (channel == 0) {

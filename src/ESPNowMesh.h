@@ -12,8 +12,10 @@
 #define MESH_TTL_DEFAULT  4
 #define DEFAULT_WIFI_CHANNEL 1  // Use channel 1 by default for better reliability
 #define MESH_MAX_PENDING_ACKS 10  // Maximum number of pending ACKs to track
-#define MESH_DEFAULT_ACK_TIMEOUT 2000  // Default timeout for ACKs (ms)
+#define MESH_DEFAULT_ACK_TIMEOUT 3000  // Default timeout for ACKs (ms)
 #define MESH_DEFAULT_ACK_RETRIES 3  // Default number of retries for reliable messages
+#define MESH_DEFAULT_NEIGHBOR_EXPIRY 300000  // Default neighbor expiry time (5 minutes)
+#define MESH_DEFAULT_CLEANUP_INTERVAL 60000  // Default cleanup interval (1 minute)
 
 class ESPNowMesh {
 public:
@@ -81,6 +83,10 @@ public:
   // Moved from private to public to allow application access
   uint32_t generateMsgId();  // Helper to generate unique message IDs
 
+  // New API for configuring node aging
+  void setNeighborExpiry(unsigned long expiryTime);
+  void setNeighborCleanupInterval(unsigned long interval);
+  
 private:
   bool retryFallback = false;
   bool fallbackToBroadcast = true;
@@ -144,6 +150,11 @@ private:
 
   // Helper method for finding the best route to a target
   uint8_t* findBestRoute(const uint8_t* targetMac, int& bestRssi);
+
+  // Node aging parameters
+  unsigned long neighborExpiryTime = MESH_DEFAULT_NEIGHBOR_EXPIRY;
+  unsigned long neighborCleanupInterval = MESH_DEFAULT_CLEANUP_INTERVAL;
+  unsigned long lastNeighborCleanup = 0;
 };
 
 #endif
