@@ -1,0 +1,41 @@
+# Arduino build files
+*.elf
+*.hex
+*.bin
+*.eep
+*.map
+*.d
+*.o
+
+# Arduino CLI / IDE build directories
+build/
+*.ino.cpp
+
+# Arduino sketchbook temp files
+*.sdf
+*.suo
+*.user
+*.ncb
+
+# Mac system files
+.DS_Store
+
+# Windows system files
+Thumbs.db
+desktop.ini
+
+# PlatformIO (if using)
+.pio/
+.vscode/
+
+# Backup files
+*.bak
+*.swp
+*.tmp
+*.orig
+*~
+
+# Arduino IDE metadata
+__MACOSX/
+*.log
+*.dmp

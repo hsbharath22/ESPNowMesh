@@ -16,6 +16,9 @@
 #define MESH_DEFAULT_ACK_RETRIES 3  // Default number of retries for reliable messages
 #define MESH_DEFAULT_NEIGHBOR_EXPIRY 300000  // Default neighbor expiry time (5 minutes)
 #define MESH_DEFAULT_CLEANUP_INTERVAL 60000  // Default cleanup interval (1 minute)
+// Long Range mode definitions
+#define LR_MODE_DISABLED 0
+#define LR_MODE_ENABLED 1
 
 class ESPNowMesh {
 public:
@@ -87,6 +90,10 @@ public:
   void setNeighborExpiry(unsigned long expiryTime);
   void setNeighborCleanupInterval(unsigned long interval);
   
+  // Long Range mode API
+  void enableLongRange(bool enable);
+  bool isLongRangeEnabled() const;
+  
 private:
   bool retryFallback = false;
   bool fallbackToBroadcast = true;
@@ -101,6 +108,7 @@ private:
   uint8_t neighborCount = 0;
   uint8_t wifiChannel = DEFAULT_WIFI_CHANNEL;
   uint16_t messageSeq = 0;  // Added: Message sequence counter for unique IDs
+  bool longRangeMode = false; // Long Range mode flag
   
   // End-to-end acknowledgment variables
   uint32_t ackTimeout = MESH_DEFAULT_ACK_TIMEOUT;

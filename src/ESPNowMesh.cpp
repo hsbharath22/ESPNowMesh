@@ -39,6 +39,19 @@ void ESPNowMesh::begin(int rssi_threshold, uint8_t wifi_channel)
     Serial.printf("[MESH] Setting WiFi channel to %d\n", wifiChannel);
   }
   esp_wifi_set_channel(wifiChannel, WIFI_SECOND_CHAN_NONE);
+  
+  // Apply Long Range mode if enabled
+  if (longRangeMode) {
+    if (debugMode) {
+      Serial.println("[MESH] Enabling Long Range mode");
+    }
+    // Set PHY mode to Long Range
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+  } else {
+    // Standard mode - enable all modes for maximum compatibility
+    esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+  }
+  
   delay(100);
 
   // First deinitialize ESP-NOW if it was initialized before
@@ -96,6 +109,7 @@ void ESPNowMesh::begin(int rssi_threshold, uint8_t wifi_channel)
     Serial.print("[MESH] Role: ");
     Serial.println(selfRole);
     Serial.printf("[MESH] WiFi channel: %d\n", wifiChannel);
+    Serial.printf("[MESH] Long Range mode: %s\n", longRangeMode ? "enabled" : "disabled");
   }
 }
 
@@ -1428,4 +1442,70 @@ uint8_t* ESPNowMesh::findBestRoute(const uint8_t* targetMac, int& bestRssi)
   }
   bestRssi = -100; // Indicate this is a fallback
   return broadcastAddr;
+}
+
+// Implementation of Long Range mode methods
+void ESPNowMesh::enableLongRange(bool enable) {
+  longRangeMode = enable;
+  if (debugMode) {
+    debugLog("Long Range mode %s", enable ? "enabled" : "disabled");
+  }
+  
+  // If ESP-NOW is already initialized, we need to reinitialize with the new setting
+  if (esp_now_is_peer_exist(nullptr)) {
+    if (debugMode) {
+      debugLog("Reinitializing ESP-NOW to apply Long Range mode change");
+    }
+    // Store current channel to reapply it
+    uint8_t current_channel = wifiChannel;
+    esp_now_deinit();
+    
+    // Reapply the WiFi mode and channel
+    WiFi.mode(WIFI_STA);
+    delay(100);
+    
+    // Apply Long Range mode if enabled
+    if (longRangeMode) {
+      if (debugMode) {
+        debugLog("Setting PHY mode to Long Range");
+      }
+      esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
+    } else {
+      if (debugMode) {
+        debugLog("Setting PHY mode to standard 802.11");
+      }
+      esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
+    }
+    
+    // Set channel and reinitialize ESP-NOW
+    esp_wifi_set_channel(current_channel, WIFI_SECOND_CHAN_NONE);
+    delay(100);
+    
+    if (esp_now_init() != ESP_OK) {
+      if (debugMode) {
+        debugLog("Failed to reinitialize ESP-NOW after setting Long Range mode!");
+      }
+      return;
+    }
+    
+    // Re-register callbacks
+    esp_now_register_recv_cb(_onRecvStatic);
+    esp_now_register_send_cb(_onSendStatic);
+    
+    // Set up broadcast peer again
+    esp_now_peer_info_t peer = {};
+    memset(peer.peer_addr, 0xFF, 6);
+    peer.channel = wifiChannel;
+    peer.encrypt = false;
+    
+    esp_now_add_peer(&peer);
+    
+    if (debugMode) {
+      debugLog("ESP-NOW reinitialized with Long Range mode %s", longRangeMode ? "enabled" : "disabled");
+    }
+  }
+}
+
+bool ESPNowMesh::isLongRangeEnabled() const {
+  return longRangeMode;
 }
