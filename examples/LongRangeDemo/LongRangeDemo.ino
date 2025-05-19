@@ -13,7 +13,7 @@
  *
  * Note: Long Range mode only works between ESP32 devices and 
  *       uses a fixed 1Mbps PHY rate while extending the range
- *       by approximately 4 times compared to standard mode.
+ *       by approximately 4x compared to standard mode.
  */
 
 #include <ESPNowMesh.h>
@@ -29,7 +29,7 @@ SerialTerminal terminal(mesh);
 const uint8_t WIFI_CHANNEL = 1;  // Fixed channel for better performance
 const int RSSI_THRESHOLD = -95;  // Extended threshold for Long Range mode (-95 instead of -80)
 unsigned long lastStatusReport = 0;
-bool longRangeEnabled = true;    // Start with Long Range enabled
+const bool LONG_RANGE_MODE = true;  // Enable Long Range mode
 
 // Message handler callback
 void onMeshMessage(const char* msg, const uint8_t* sender) {
@@ -54,22 +54,20 @@ void setup() {
   
   // Configure terminal
   terminal.begin();
-  terminal.addHelpItem("/lr [0|1]", "Enable (1) or disable (0) Long Range mode");
+  terminal.addHelpItem("/status", "Show current mesh status and configuration");
   terminal.addHelpItem("/rssi", "Show current RSSI threshold");
   terminal.addHelpItem("/rssi <value>", "Set RSSI threshold (e.g. /rssi -95)");
-  terminal.addHelpItem("/status", "Show current mesh status and configuration");
   
   // Configure mesh
   mesh.setRole("lr-node");
   mesh.enableDebug(true);
   
-  // Enable Long Range mode
-  mesh.enableLongRange(longRangeEnabled);
-  
-  // Initialize the mesh network
+  // Initialize the mesh network with Long Range mode
   Serial.printf("Initializing mesh network on channel %d with RSSI threshold %d...\n", 
                 WIFI_CHANNEL, RSSI_THRESHOLD);
-  mesh.begin(RSSI_THRESHOLD, WIFI_CHANNEL);
+  Serial.printf("Long Range mode is %s\n", LONG_RANGE_MODE ? "ENABLED" : "disabled");
+  
+  mesh.begin(RSSI_THRESHOLD, WIFI_CHANNEL, LONG_RANGE_MODE);
   mesh.onReceive(onMeshMessage);
   
   // Enable advanced features
@@ -121,29 +119,13 @@ void showStatus() {
 
 // Our custom command handler
 bool terminalCallback(const char* command, const char* params, SerialTerminal* term) {
-  // Long Range mode command
-  if (strcmp(command, "/lr") == 0) {
-    if (strlen(params) > 0) {
-      // Enable or disable Long Range mode
-      longRangeEnabled = (params[0] == '1');
-      mesh.enableLongRange(longRangeEnabled);
-      Serial.printf("Long Range mode %s\n", longRangeEnabled ? "ENABLED" : "disabled");
-    } else {
-      // Toggle Long Range mode
-      longRangeEnabled = !longRangeEnabled;
-      mesh.enableLongRange(longRangeEnabled);
-      Serial.printf("Long Range mode toggled: %s\n", longRangeEnabled ? "ENABLED" : "disabled");
-    }
-    return true;
-  }
-  
   // RSSI threshold command
-  else if (strcmp(command, "/rssi") == 0) {
+  if (strcmp(command, "/rssi") == 0) {
     if (strlen(params) > 0) {
       int newThreshold = atoi(params);
       if (newThreshold < 0) {
         // Update the RSSI threshold
-        mesh.begin(newThreshold, WIFI_CHANNEL);
+        mesh.begin(newThreshold, WIFI_CHANNEL, mesh.isLongRangeEnabled());
         Serial.printf("RSSI threshold set to %d dBm\n", newThreshold);
       } else {
         Serial.println("Error: RSSI threshold should be negative (e.g., -95)");

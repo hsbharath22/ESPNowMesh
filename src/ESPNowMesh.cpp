@@ -3,11 +3,12 @@
 
 ESPNowMesh *ESPNowMesh::instance = nullptr;
 
-void ESPNowMesh::begin(int rssi_threshold, uint8_t wifi_channel)
+void ESPNowMesh::begin(int rssi_threshold, uint8_t wifi_channel, bool long_range)
 {
   // Save RSSI threshold and WiFi channel settings
   this->rssiThreshold = rssi_threshold;
   this->wifiChannel = wifi_channel;
+  this->longRangeMode = long_range;
 
   // Initialize WiFi in STA mode
   WiFi.mode(WIFI_STA);
@@ -55,13 +56,13 @@ void ESPNowMesh::begin(int rssi_threshold, uint8_t wifi_channel)
   delay(100);
 
   // First deinitialize ESP-NOW if it was initialized before
-  if (esp_now_is_peer_exist(nullptr))
-  {
-    if (debugMode)
-      Serial.println("[MESH] Deinitializing existing ESP-NOW setup");
-    esp_now_deinit();
-    delay(100);
-  }
+  // if (esp_now_is_peer_exist(nullptr))
+  // {
+  //   if (debugMode)
+  //     Serial.println("[MESH] Deinitializing existing ESP-NOW setup");
+  //   esp_now_deinit();
+  //   delay(100);
+  // }
 
   // Initialize ESP-NOW
   if (esp_now_init() != ESP_OK)
@@ -189,6 +190,15 @@ void ESPNowMesh::send(const char *msgText, const uint8_t *target_mac, uint8_t tt
   // Set message fields
   msg.ttl = ttl;
   msg.path_len = 0;
+  
+  // Always add ourselves to the path when originating a message
+  // This fixes the issue where intermediate nodes send back to the origin
+  if (msg.path_len < MESH_MAX_PATH) {
+    memcpy(msg.path[msg.path_len++], msg.sender, 6);
+    if (debugMode) {
+      debugLog("Added self to message path at position 0");
+    }
+  }
 
   // Use provided message ID if not zero, otherwise generate a new one
   if (msg_id != 0)
@@ -225,7 +235,7 @@ void ESPNowMesh::send(const char *msgText, const uint8_t *target_mac, uint8_t tt
   {
     // Use findBestRoute to get the best next hop
     int bestRSSI = -128;
-    uint8_t* bestMac = findBestRoute(target_mac, bestRSSI);
+    uint8_t* bestMac = findBestRoute(target_mac, bestRSSI, &msg);
 
     if (bestMac && bestRSSI >= rssiThreshold && !isBroadcast(bestMac))
     {
@@ -698,7 +708,7 @@ bool ESPNowMesh::isInPath(const uint8_t *mac, const MeshPacket &msg)
   return false;
 }
 
-// Modify _onRecv to properly handle unicast messages
+// Modify _onRecv to properly handle unicast messages and forward ACK messages
 void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int rssi)
 {
   if (len != sizeof(MeshPacket))
@@ -727,6 +737,8 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
     Serial.printf(", RSSI: %d, Msg: %s\n", rssi, msg.payload);
   }
 
+  bool isAckMessage = false;
+
   // Handle acknowledgment messages
   if (strncmp(msg.payload, "ACK|", 4) == 0)
   {
@@ -739,7 +751,8 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
     // Process the ACK locally - maybe we're waiting for it
     _handleAck(ack_id, mac);
 
-    return;
+    // Flag as ACK message but don't return - allow forwarding logic to process
+    isAckMessage = true;
   }
 
   // Check if this is a duplicate message
@@ -763,7 +776,8 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
 
   // Flag for internal protocol messages that shouldn't be passed to user callback
   bool isInternalProtocolMsg = (strcmp(msg.payload, "DISCOVERY_REQ") == 0 ||
-                                strncmp(msg.payload, "DISCOVERY_RSP|", 14) == 0);
+                                strncmp(msg.payload, "DISCOVERY_RSP|", 14) == 0 ||
+                                isAckMessage); // Add ACK messages to internal protocol messages
 
   if (isForUs)
   {
@@ -803,6 +817,7 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
       delay(random(10, 50)); // Avoid collisions
       send(rsp, mac, 1, 0);
       // No need to continue processing after handling discovery request
+      return; // Early return only for discovery request handling
     }
     else if (strncmp(msg.payload, "DISCOVERY_RSP|", 14) == 0)
     {
@@ -824,8 +839,9 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
         updateNeighbor(mac, role, rssi);
       }
       // No need to continue processing after handling discovery response
+      return; // Early return only for discovery response handling
     }
-    else if (isUnicast)
+    else if (isUnicast && !isAckMessage) // Generate ACK only for non-ACK unicast messages addressed to us
     {
       // Send acknowledgment if unicast - ensure we do this for any unicast message
       if (debugMode)
@@ -859,6 +875,9 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
     if (debugMode)
     {
       Serial.printf("[MESH] Forwarding message (TTL: %d -> %d)\n", msg.ttl, msg.ttl - 1);
+      if (isAckMessage) {
+        Serial.println("[MESH] This is an ACK message being forwarded");
+      }
     }
 
     // Add ourselves to the path to prevent loops
@@ -870,86 +889,79 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
     // Decrement TTL
     msg.ttl--;
 
-    // Only forward if signal is strong enough
-    if (rssi >= rssiThreshold)
+    // Determine if this is a critical message that should bypass RSSI checks
+    bool isCriticalMessage = isAckMessage || msg.ttl <= 2;
+    
+    // Skip the initial RSSI check for critical messages (ACKs and low TTL)
+    // This ensures all critical messages get a chance to be routed by findBestRoute
+    if (rssi >= rssiThreshold || isCriticalMessage)
     {
+      if (isCriticalMessage && rssi < rssiThreshold && debugMode) {
+        debugLog("Bypassing initial RSSI check for %s (RSSI: %d < %d)",
+               isAckMessage ? "ACK message" : "low TTL message", 
+               rssi, rssiThreshold);
+      }
+      
       esp_err_t result = ESP_FAIL;
       
       // For unicast messages, try to use directed unicast forwarding
       if (isUnicast && useUnicast)
       {
-        // If we know the target node directly, send to it directly
-        bool directPathFound = false;
+        // Use findBestRoute to determine the next hop with relaxed threshold for critical messages
+        int bestRSSI;
+        int routingThreshold = isCriticalMessage ? (rssiThreshold - 15) : rssiThreshold;
+        uint8_t* nextHop = findBestRoute(msg.receiver, bestRSSI, &msg);
         
-        // Check if the target is one of our immediate neighbors
-        for (uint8_t i = 0; i < neighborCount; i++)
+        if (nextHop && !isBroadcast(nextHop))
         {
-          if (memcmp(msg.receiver, neighbors[i].mac, 6) == 0)
+          // For critical messages, use relaxed threshold for routing
+          bool goodSignal = bestRSSI >= routingThreshold;
+                            
+          if (goodSignal)
           {
-            // Target node is a direct neighbor - forward directly to it
             if (debugMode)
             {
-              debugLog("Target is direct neighbor, forwarding unicast directly to %02X:%02X:%02X:%02X:%02X:%02X",
-                      msg.receiver[0], msg.receiver[1], msg.receiver[2],
-                      msg.receiver[3], msg.receiver[4], msg.receiver[5]);
-            }
-            
-            if (debugMode) {
+              // Check if this is direct routing to the target or via an intermediate node
+              bool directToTarget = (memcmp(nextHop, msg.receiver, 6) == 0);
+              
+              if (directToTarget) {
+                debugLog("Target is direct neighbor, forwarding unicast directly to %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d%s)",
+                       nextHop[0], nextHop[1], nextHop[2], nextHop[3], nextHop[4], nextHop[5],
+                       bestRSSI,
+                       (bestRSSI < rssiThreshold) ? ", using relaxed threshold" : "");
+              } else {
+                debugLog("Forwarding unicast message via best neighbor %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d%s)",
+                       nextHop[0], nextHop[1], nextHop[2], nextHop[3], nextHop[4], nextHop[5],
+                       bestRSSI,
+                       (bestRSSI < rssiThreshold) ? ", using relaxed threshold" : "");
+              }
+              
+              // Detailed debug logging
               uint8_t ourMac[6];
               WiFi.macAddress(ourMac);
               char payloadPreview[17] = {0};
               strncpy(payloadPreview, (char*)msg.payload, 16);
-              debugLog("ESP-NOW SEND: Direct forwarding to %02X:%02X:%02X:%02X:%02X:%02X, from %02X:%02X:%02X:%02X:%02X:%02X, payload: %.16s%s",
-                      msg.receiver[0], msg.receiver[1], msg.receiver[2], msg.receiver[3], msg.receiver[4], msg.receiver[5],
-                      ourMac[0], ourMac[1], ourMac[2], ourMac[3], ourMac[4], ourMac[5],
-                      payloadPreview, strlen((char*)msg.payload) > 16 ? "..." : "");
-            }
-            result = esp_now_send(msg.receiver, (uint8_t *)&msg, sizeof(msg));
-            directPathFound = true;
-            break;
-          }
-        }
-        
-        // If direct path wasn't found, try to find best next hop
-        if (!directPathFound)
-        {
-          // Find best neighbor based on RSSI to forward the message
-          int bestRSSI = -128;
-          uint8_t *bestMac = nullptr;
-          
-          for (uint8_t i = 0; i < neighborCount; i++)
-          {
-            if (!isInPath(neighbors[i].mac, msg) && neighbors[i].rssi > bestRSSI)
-            {
-              bestRSSI = neighbors[i].rssi;
-              bestMac = neighbors[i].mac;
-            }
-          }
-          
-          if (bestMac)
-          {
-            if (debugMode)
-            {
-              debugLog("Forwarding unicast message via best neighbor %02X:%02X:%02X:%02X:%02X:%02X, RSSI: %d",
-                      bestMac[0], bestMac[1], bestMac[2], bestMac[3], bestMac[4], bestMac[5], bestRSSI);
+              debugLog("ESP-NOW SEND: Forward to %02X:%02X:%02X:%02X:%02X:%02X, from %02X:%02X:%02X:%02X:%02X:%02X, payload: %.16s%s",
+                     nextHop[0], nextHop[1], nextHop[2], nextHop[3], nextHop[4], nextHop[5],
+                     ourMac[0], ourMac[1], ourMac[2], ourMac[3], ourMac[4], ourMac[5],
+                     payloadPreview, strlen((char*)msg.payload) > 16 ? "..." : "");
             }
             
-            if (debugMode) {
-              uint8_t ourMac[6];
-              WiFi.macAddress(ourMac);
-              char payloadPreview[17] = {0};
-              strncpy(payloadPreview, (char*)msg.payload, 16);
-              debugLog("ESP-NOW SEND: Forward via best neighbor %02X:%02X:%02X:%02X:%02X:%02X, from %02X:%02X:%02X:%02X:%02X:%02X, payload: %.16s%s",
-                      bestMac[0], bestMac[1], bestMac[2], bestMac[3], bestMac[4], bestMac[5],
-                      ourMac[0], ourMac[1], ourMac[2], ourMac[3], ourMac[4], ourMac[5],
-                      payloadPreview, strlen((char*)msg.payload) > 16 ? "..." : "");
-            }
-            result = esp_now_send(bestMac, (uint8_t *)&msg, sizeof(msg));
+            // Ensure the peer is properly managed
+            managePeer(nextHop, wifiChannel, false);
+            
+            // Send the message
+            result = esp_now_send(nextHop, (uint8_t *)&msg, sizeof(msg));
           }
           else if (debugMode)
           {
-            debugLog("No suitable unicast neighbor found for forwarding, falling back to broadcast");
+            debugLog("Found route but signal too weak even with relaxed threshold (RSSI: %d < %d), falling back to broadcast",
+                    bestRSSI, routingThreshold);
           }
+        }
+        else if (debugMode)
+        {
+          debugLog("No suitable unicast neighbor found for forwarding, falling back to broadcast");
         }
       }
       
@@ -989,13 +1001,13 @@ void ESPNowMesh::_onRecv(const uint8_t *mac, const uint8_t *data, int len, int r
     }
     else if (debugMode)
     {
-      Serial.printf("[MESH] Not forwarding - RSSI too low (%d < %d)\n",
-                    rssi, rssiThreshold);
+      // Message doesn't meet RSSI threshold and is not critical
+      Serial.printf("[MESH] Not forwarding non-critical message - RSSI too low (%d < %d)\n",
+                  rssi, rssiThreshold);
     }
   }
   else if (debugMode)
   {
-    // Explain why we're not forwarding
     if (msg.ttl == 0)
     {
       Serial.println("[MESH] Not forwarding - TTL expired");
@@ -1386,124 +1398,108 @@ bool ESPNowMesh::managePeer(const uint8_t* mac, uint8_t channel, bool encrypt)
   }
 }
 
-// Helper method to find the best route to a target
-uint8_t* ESPNowMesh::findBestRoute(const uint8_t* targetMac, int& bestRssi)
+// Helper method to find the best route to a target with improved tiered routing
+uint8_t* ESPNowMesh::findBestRoute(const uint8_t* targetMac, int& bestRssi, const MeshPacket* msg)
 {
   bestRssi = -128;
   static uint8_t broadcastAddr[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
   
-  // First check if the target is a direct neighbor with good signal
+  // First tier: Direct path to target with good signal
   if (targetMac) {
     bool targetIsNeighbor = false;
     int targetRssi = -128;
     
+    // Check if target is a direct neighbor
     for (uint8_t i = 0; i < neighborCount; i++) {
       if (memcmp(targetMac, neighbors[i].mac, 6) == 0) {
         targetIsNeighbor = true;
         targetRssi = neighbors[i].rssi;
-        if (debugMode) {
-          debugLog("Target is a direct neighbor with RSSI: %d", targetRssi);
+        
+        if (targetRssi >= rssiThreshold) {
+          // Perfect case - direct route with good signal
+          bestRssi = targetRssi;
+          if (debugMode) {
+            debugLog("Direct route to target with good signal (RSSI: %d)", bestRssi);
+          }
+          return (uint8_t*)targetMac;
+        } else {
+          // Make note of direct path RSSI for potential fallback
+          bestRssi = targetRssi;
+          if (debugMode) {
+            debugLog("Direct route to target exists but signal is weak (RSSI: %d < %d)", 
+                    targetRssi, rssiThreshold);
+          }
+          break;
         }
-        break;
       }
-    }
-    
-    if (targetIsNeighbor && targetRssi >= rssiThreshold) {
-      // Target is reachable directly with good signal
-      bestRssi = targetRssi;
-      if (debugMode) {
-        debugLog("Routing directly to target: %02X:%02X:%02X:%02X:%02X:%02X (RSSI: %d)",
-               targetMac[0], targetMac[1], targetMac[2], targetMac[3], targetMac[4], targetMac[5], targetRssi);
-      }
-      return (uint8_t*)targetMac;
     }
   }
   
-  // If target isn't directly reachable or has poor signal, find best next hop
+  // Second tier: Find best neighbor not in path with good signal
+  int bestGoodRssi = -128;
+  uint8_t* bestGoodNeighbor = nullptr;
+  
   for (uint8_t i = 0; i < neighborCount; i++) {
-    // Skip the target if it had poor signal
-    if (targetMac && memcmp(targetMac, neighbors[i].mac, 6) == 0)
+    // Skip neighbors already in path (if msg is provided) and the target itself
+    if ((msg && isInPath(neighbors[i].mac, *msg)) || 
+        (targetMac && memcmp(targetMac, neighbors[i].mac, 6) == 0))
+      continue;
+    
+    // Find best neighbor with good signal
+    if (neighbors[i].rssi >= rssiThreshold && neighbors[i].rssi > bestGoodRssi) {
+      bestGoodRssi = neighbors[i].rssi;
+      bestGoodNeighbor = neighbors[i].mac;
+    }
+  }
+  
+  // If we found a good neighbor not in path, use it
+  if (bestGoodNeighbor) {
+    bestRssi = bestGoodRssi;
+    if (debugMode) {
+      debugLog("Using best neighbor with good signal for routing (RSSI: %d)", bestRssi);
+    }
+    return bestGoodNeighbor;
+  }
+  
+  // Third tier: If we have a direct path to target but with poor signal,
+  // use it anyway rather than giving up
+  if (targetMac && bestRssi > -128) {
+    if (debugMode) {
+      debugLog("Using direct route to target despite poor signal (RSSI: %d)", bestRssi);
+    }
+    return (uint8_t*)targetMac;
+  }
+  
+  // Fourth tier: Find any neighbor not in path with best signal, even if below threshold
+  int bestPoorRssi = -128;
+  uint8_t* bestPoorNeighbor = nullptr;
+  
+  for (uint8_t i = 0; i < neighborCount; i++) {
+    if ((msg && isInPath(neighbors[i].mac, *msg)) || 
+        (targetMac && memcmp(targetMac, neighbors[i].mac, 6) == 0))
       continue;
       
-    if (neighbors[i].rssi > bestRssi) {
-      bestRssi = neighbors[i].rssi;
-      if (debugMode) {
-        debugLog("Considering neighbor %02X:%02X:%02X:%02X:%02X:%02X as best route (RSSI: %d)",
-               neighbors[i].mac[0], neighbors[i].mac[1], neighbors[i].mac[2],
-               neighbors[i].mac[3], neighbors[i].mac[4], neighbors[i].mac[5], neighbors[i].rssi);
-      }
-      return neighbors[i].mac;
+    if (neighbors[i].rssi > bestPoorRssi) {
+      bestPoorRssi = neighbors[i].rssi;
+      bestPoorNeighbor = neighbors[i].mac;
     }
   }
   
-  // If no good neighbors found, use broadcast as fallback
-  if (debugMode) {
-    debugLog("No good neighbors found for routing, using broadcast");
+  // If we found any neighbor not in path, use it as last resort
+  if (bestPoorNeighbor) {
+    bestRssi = bestPoorRssi;
+    if (debugMode) {
+      debugLog("Last resort routing via neighbor with suboptimal signal (RSSI: %d)", bestRssi);
+    }
+    return bestPoorNeighbor;
   }
-  bestRssi = -100; // Indicate this is a fallback
+  
+  // Final fallback: Broadcast
+  bestRssi = -100;
+  if (debugMode) {
+    debugLog("No viable route found, falling back to broadcast");
+  }
   return broadcastAddr;
-}
-
-// Implementation of Long Range mode methods
-void ESPNowMesh::enableLongRange(bool enable) {
-  longRangeMode = enable;
-  if (debugMode) {
-    debugLog("Long Range mode %s", enable ? "enabled" : "disabled");
-  }
-  
-  // If ESP-NOW is already initialized, we need to reinitialize with the new setting
-  if (esp_now_is_peer_exist(nullptr)) {
-    if (debugMode) {
-      debugLog("Reinitializing ESP-NOW to apply Long Range mode change");
-    }
-    // Store current channel to reapply it
-    uint8_t current_channel = wifiChannel;
-    esp_now_deinit();
-    
-    // Reapply the WiFi mode and channel
-    WiFi.mode(WIFI_STA);
-    delay(100);
-    
-    // Apply Long Range mode if enabled
-    if (longRangeMode) {
-      if (debugMode) {
-        debugLog("Setting PHY mode to Long Range");
-      }
-      esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_LR);
-    } else {
-      if (debugMode) {
-        debugLog("Setting PHY mode to standard 802.11");
-      }
-      esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N);
-    }
-    
-    // Set channel and reinitialize ESP-NOW
-    esp_wifi_set_channel(current_channel, WIFI_SECOND_CHAN_NONE);
-    delay(100);
-    
-    if (esp_now_init() != ESP_OK) {
-      if (debugMode) {
-        debugLog("Failed to reinitialize ESP-NOW after setting Long Range mode!");
-      }
-      return;
-    }
-    
-    // Re-register callbacks
-    esp_now_register_recv_cb(_onRecvStatic);
-    esp_now_register_send_cb(_onSendStatic);
-    
-    // Set up broadcast peer again
-    esp_now_peer_info_t peer = {};
-    memset(peer.peer_addr, 0xFF, 6);
-    peer.channel = wifiChannel;
-    peer.encrypt = false;
-    
-    esp_now_add_peer(&peer);
-    
-    if (debugMode) {
-      debugLog("ESP-NOW reinitialized with Long Range mode %s", longRangeMode ? "enabled" : "disabled");
-    }
-  }
 }
 
 bool ESPNowMesh::isLongRangeEnabled() const {

@@ -54,7 +54,7 @@ public:
   };
 
   // Public API
-  void begin(int rssi_threshold = -80, uint8_t wifi_channel = DEFAULT_WIFI_CHANNEL);
+  void begin(int rssi_threshold = -80, uint8_t wifi_channel = DEFAULT_WIFI_CHANNEL, bool long_range = false);
   void send(const char* msgText, const uint8_t* target_mac = nullptr, uint8_t ttl = MESH_TTL_DEFAULT, uint32_t msg_id = 0);
   void sendConfig(const char* jsonConfig, const uint8_t* target_mac = nullptr, uint8_t ttl = MESH_TTL_DEFAULT);
   void onReceive(MeshCallback cb);
@@ -91,7 +91,6 @@ public:
   void setNeighborCleanupInterval(unsigned long interval);
   
   // Long Range mode API
-  void enableLongRange(bool enable);
   bool isLongRangeEnabled() const;
   
 private:
@@ -157,7 +156,7 @@ private:
   bool isPendingAckActive(int index);
 
   // Helper method for finding the best route to a target
-  uint8_t* findBestRoute(const uint8_t* targetMac, int& bestRssi);
+  uint8_t* findBestRoute(const uint8_t* targetMac, int& bestRssi, const MeshPacket* msg = nullptr);
 
   // Node aging parameters
   unsigned long neighborExpiryTime = MESH_DEFAULT_NEIGHBOR_EXPIRY;

@@ -34,10 +34,10 @@ A reliable, multi-hop mesh networking library for ESP32 devices using ESP-NOW.
 
 ### Long Range Mode (ESP32 Only)
 - Extend communication range up to 4x compared to standard mode
-- Dynamically toggle between normal and Long Range mode
 - Fixed 1Mbps PHY rate optimized for distance
 - Compatible with all other ESPNowMesh features
 - Perfect for outdoor or large area IoT deployments
+- Must be enabled at initialization time
 
 ### Serial Command Interface
 - Interactive control via Serial Monitor:
@@ -169,8 +169,8 @@ MIT License
 ## Public API Methods
 
 ### Initialization
-- `void begin(int rssi_threshold = -80, uint8_t wifi_channel = DEFAULT_WIFI_CHANNEL);`  
-  Initializes Wi-Fi in STA mode and sets up ESP-NOW with optional RSSI threshold and WiFi channel.
+- `void begin(int rssi_threshold = -80, uint8_t wifi_channel = DEFAULT_WIFI_CHANNEL, bool long_range = false);`  
+  Initializes Wi-Fi in STA mode and sets up ESP-NOW with optional RSSI threshold, WiFi channel, and Long Range mode.
 
 - `void setRole(const char* role);`  
   Sets the string role of the node (e.g., "sensor", "relay").
@@ -268,18 +268,26 @@ mesh.setFallbackToBroadcast(true);// If direct path fails, try broadcasting as l
 ### Long Range Mode
 
 ```cpp
-// Enable Long Range mode (best for outdoor/long distance)
-mesh.enableLongRange(true);
-
-// Start with LR mode and use extended RSSI threshold
-mesh.enableLongRange(true);
-mesh.begin(-95, 1);  // Lower RSSI threshold (-95 dBm) and channel 1
+// Enable Long Range mode at initialization (best for outdoor/long distance)
+mesh.begin(-95, 1, true);  // RSSI threshold (-95 dBm), channel 1, Long Range enabled
 
 // Check if Long Range mode is active
 if (mesh.isLongRangeEnabled()) {
   Serial.println("Operating in extended range mode");
 }
 ```
+
+## Notes on Long Range Mode
+
+Long Range (LR) mode is a special ESP32-specific feature that significantly extends the range of Wi-Fi communication at the cost of bandwidth. When using LR mode:
+
+1. All communicating devices must be ESP32 and have Long Range mode enabled
+2. Long Range mode must be set at initialization time and cannot be changed at runtime
+3. The data rate is fixed at 1 Mbps (much slower than standard Wi-Fi)
+4. Range can be extended up to approximately 4x standard range
+5. The lower data rate means you should keep messages small
+6. It works best with unobstructed line of sight
+7. Consider using a lower RSSI threshold (e.g., -95 instead of -80) since signals will travel further
 
 ## SerialTerminal API
 
@@ -355,14 +363,3 @@ typedef bool (*CommandHandler)(const String& args, ESPNowMesh& mesh);
 - `MESH_DEFAULT_ACK_RETRIES`: Default number of retries (default 3)
 - `LR_MODE_ENABLED`: Long Range mode enabled flag (value 1)
 - `LR_MODE_DISABLED`: Long Range mode disabled flag (value 0)
-
-## Notes on Long Range Mode
-
-Long Range (LR) mode is a special ESP32-specific feature that significantly extends the range of Wi-Fi communication at the cost of bandwidth. When using LR mode:
-
-1. All communicating devices must be ESP32 and have Long Range mode enabled
-2. The data rate is fixed at 1 Mbps (much slower than standard Wi-Fi)
-3. Range can be extended up to approximately 4x standard range
-4. The lower data rate means you should keep messages small
-5. It works best with unobstructed line of sight
-6. Consider using a lower RSSI threshold (e.g., -95 instead of -80) since signals will travel further
